@@ -1,0 +1,66 @@
+# Declared belief about each action's economics — plan.md §6.4.
+#
+# This is the RANKER's belief, deliberately a separate object from the
+# environment's true generative delay (app/simulation/environment.py's
+# _DAYS_TO_CASH_MEAN) — they happen to be initialised alike, but keeping
+# them as two objects is what makes the E_shift/E_adversarial robustness
+# tests mean anything: the agent works from a belief, not the oracle.
+#
+# collectible_fraction: what fraction of the invoice this action can
+# actually collect. Every action collects the full amount except a payment
+# plan, which nets less after the pre-approved concession (P07, cut for
+# this build's compressed schedule — see plan.md §10 cut ladder — so the
+# concession is applied here as a flat, declared haircut rather than a
+# policy-enforced whitelist of specific plan products).
+actions:
+  send_reminder:
+    collectible_fraction: 1.0
+    days_to_cash: 5
+    cost_paise: 2
+    cooldown_days: 5
+
+  resend_payment_link:
+    collectible_fraction: 1.0
+    days_to_cash: 3
+    cost_paise: 2
+    cooldown_days: 4
+
+  send_upi_payment_link:
+    collectible_fraction: 1.0
+    days_to_cash: 2
+    cost_paise: 2
+    cooldown_days: 4
+
+  schedule_call:
+    collectible_fraction: 1.0
+    days_to_cash: 8
+    cost_paise: 300           # a human's time, cheaper than a full escalation
+    cooldown_days: 6
+
+  offer_payment_plan:
+    collectible_fraction: 0.90   # 10% concession haircut on a pre-approved plan
+    days_to_cash: 60
+    cost_paise: 5
+    cooldown_days: 14
+
+  escalate_to_am:
+    collectible_fraction: 1.0
+    days_to_cash: 12
+    cost_paise: 120000        # ~40 minutes of a salaried human, in paise (Rs 1,200)
+    cooldown_days: 21
+
+# The escalation ladder — plan.md §6.4. An action may not repeat within its
+# own cooldown_days above; the agent may not move more than one rung per
+# cycle; it may never move down the ladder; and no action executes more
+# than twice on the same invoice, ever (enforced in app/domain/ranking.py,
+# not here — this file is data, not logic).
+ladder:
+  - send_reminder
+  - resend_payment_link
+  - send_upi_payment_link
+  - schedule_call
+  - offer_payment_plan
+  - escalate_to_am
+
+annual_discount_rate: 0.12
+max_executions_per_action: 2

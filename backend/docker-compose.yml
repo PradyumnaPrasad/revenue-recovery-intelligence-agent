@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: rria
+      POSTGRES_PASSWORD: rria
+      POSTGRES_DB: rria
+    ports:
+      - "5432:5432"
+    volumes:
+      - rria_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rria"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Overrides .env's localhost URL — inside the compose network the
+      # database is reachable at the service name `db`, not localhost.
+      DATABASE_URL: postgresql+asyncpg://rria:rria@db:5432/rria
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8010:8000"
+    volumes:
+      - ./app:/code/app
+      - ./policies:/code/policies
+      - ./config:/code/config
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  rria_pgdata:

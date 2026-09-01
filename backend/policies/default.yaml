@@ -1,0 +1,60 @@
+# The policy engine's actual rules — plan.md §6.5. This file, not Python
+# code, is the product: it can be shown on screen, diffed, and handed to a
+# compliance officer without a code review.
+#
+# `when` strings are evaluated by simpleeval's EvalWithCompoundTypes (see
+# app/domain/policy/evaluator.py) — Python boolean syntax (True/False, not
+# YAML's true/false), never eval()/exec(). The evaluator only exposes a
+# fixed set of read-only namespaces: diagnosis, customer, invoice, action,
+# batch, promise. No method calls are available in that namespace by
+# design — every value a rule needs is precomputed by the caller before
+# evaluation, not fetched live by calling something mid-condition.
+#
+# P04 (quiet hours) and P07 (concession whitelist) are deliberately absent
+# — plan.md §10's cut ladder names both explicitly as the first cut when
+# behind schedule on D3, and this build hit that trigger. P07's intent
+# (no model-authored concession terms) is preserved as a flat, declared
+# haircut in config/actions.yaml instead of a runtime whitelist.
+version: "1.3.0"
+rules:
+  - id: P01_dispute_freeze
+    when: "diagnosis.code == 'disputed'"
+    then: substitute
+    with: route_to_dispute
+    reason: "Disputed invoices exit automated dunning entirely."
+
+  - id: P02_stop_contact
+    when: "customer.suppressed == True"
+    then: block
+    reason: "Customer requested no further contact."
+
+  - id: P03_contact_cap
+    when: "customer.contact_count_30d >= 4"
+    then: block
+    reason: "Rolling 30-day contact cap reached."
+
+  - id: P05_open_promise
+    when: "invoice.has_open_promise == True and invoice.promise_still_open == True"
+    then: block
+    reason: "Customer has an open promise-to-pay; suppress until due."
+
+  - id: P06_high_value_approval
+    when: "invoice.amount_paise > 50000000 and action.key in ['offer_payment_plan', 'escalate_to_am']"
+    then: require_approval
+    reason: "Financial authority threshold exceeded (invoice over Rs 5,00,000)."
+
+  - id: P08_chronic_ladder_skip
+    when: "diagnosis.code == 'chronic_non_payment'"
+    then: substitute
+    with: escalate_to_am
+    reason: "Chronic non-payment does not respond to further reminders."
+
+  - id: P09_daily_action_budget
+    when: "batch.actions_today >= batch.action_budget"
+    then: block
+    reason: "Daily action budget exhausted (blast-radius cap)."
+
+  - id: P10_low_confidence_llm
+    when: "diagnosis.produced_by == 'llm_fallback' and diagnosis.confidence < 0.7"
+    then: require_approval
+    reason: "Low-confidence LLM diagnosis requires human confirmation."

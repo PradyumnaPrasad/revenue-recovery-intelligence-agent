@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Recovery Command Center</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0e141b;
+    --panel: #141c26;
+    --panel-2: #1a2431;
+    --border: #263241;
+    --text: #dde6ee;
+    --text-dim: #7e8fa1;
+    --money: #2fbf8f;
+    --money-bg: #0f2b23;
+    --risk: #d9a441;
+    --risk-bg: #2b230e;
+    --stop: #e05a4e;
+    --stop-bg: #2b1512;
+    --accent: #4d8fd6;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+  header {
+    display: flex; align-items: center; gap: 32px; padding: 16px 24px;
+    border-bottom: 1px solid var(--border); background: var(--panel);
+    flex-wrap: wrap;
+  }
+  header .title { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; margin-right: auto; }
+  .stat { display: flex; flex-direction: column; gap: 2px; }
+  .stat .label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
+  .stat .value { font-size: 18px; font-weight: 600; }
+  .stat .sub { font-size: 11.5px; color: var(--text-dim); }
+  .sim-chip {
+    display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
+    background: var(--risk-bg); color: var(--risk); padding: 1px 5px; border-radius: 3px;
+    vertical-align: 2px; margin-left: 6px;
+  }
+  .degraded-banner {
+    display: none; background: var(--stop-bg); color: var(--stop); border-bottom: 1px solid var(--stop);
+    padding: 8px 24px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em;
+  }
+  .degraded-banner.show { display: block; }
+  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 56px); }
+  .queue { border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; max-height: calc(100vh - 56px); }
+  .queue h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 10px; }
+  .inv-row {
+    display: flex; justify-content: space-between; gap: 8px; padding: 9px 10px; border-radius: 6px;
+    cursor: pointer; margin-bottom: 3px; border: 1px solid transparent;
+  }
+  .inv-row:hover { background: var(--panel-2); }
+  .inv-row.active { background: var(--panel-2); border-color: var(--accent); }
+  .inv-row .id { font-weight: 600; }
+  .inv-row .amt { color: var(--text-dim); }
+  .badge { font-size: 9.5px; padding: 1px 6px; border-radius: 8px; font-weight: 600; letter-spacing: 0.03em; }
+  .badge.disputed, .badge.blocked { background: var(--stop-bg); color: var(--stop); }
+  .badge.require_approval { background: var(--risk-bg); color: var(--risk); }
+  .badge.allow, .badge.substitute { background: var(--money-bg); color: var(--money); }
+  .detail { padding: 20px 24px; overflow-y: auto; max-height: calc(100vh - 56px); }
+  .placeholder { color: var(--text-dim); padding: 40px; text-align: center; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px 18px; margin-bottom: 14px;
+  }
+  .card h3 {
+    font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim);
+    margin: 0 0 12px; display: flex; align-items: center; gap: 8px;
+  }
+  .diag-code { font-size: 17px; font-weight: 700; }
+  .diag-signals { list-style: none; padding: 0; margin: 8px 0 0; color: var(--text-dim); font-size: 12.5px; }
+  .diag-signals li:before { content: "— "; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-dim); padding: 4px 8px 6px 0; }
+  td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border); }
+  tr.gated td { opacity: 0.45; text-decoration: line-through; }
+  tr.chosen td { color: var(--money); font-weight: 600; }
+  .policy-outcome {
+    display: inline-block; padding: 3px 9px; border-radius: 5px; font-weight: 700;
+    font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase;
+  }
+  .policy-outcome.allow { background: var(--money-bg); color: var(--money); }
+  .policy-outcome.substitute { background: var(--risk-bg); color: var(--risk); }
+  .policy-outcome.require_approval { background: var(--risk-bg); color: var(--risk); }
+  .policy-outcome.block { background: var(--stop-bg); color: var(--stop); }
+  .policy-reasons { margin: 10px 0 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--text-dim); }
+  .policy-reasons li { margin-bottom: 4px; }
+  .actions-row { margin-top: 14px; display: flex; gap: 10px; }
+  button {
+    background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  button:hover { opacity: 0.9; }
+  button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .audit-dots { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .audit-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
+  .verify-badge { font-size: 11.5px; font-weight: 700; padding: 2px 8px; border-radius: 5px; }
+  .verify-badge.ok { background: var(--money-bg); color: var(--money); }
+  .verify-badge.bad { background: var(--stop-bg); color: var(--stop); }
+  .chart-row { display: flex; align-items: flex-end; gap: 28px; height: 140px; padding: 10px 4px 0; }
+  .bar-col { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
+  .bar-track { width: 44px; height: 100px; display: flex; align-items: flex-end; position: relative; }
+  .bar { width: 100%; border-radius: 3px 3px 0 0; }
+  .bar-col .pct { font-size: 13px; font-weight: 700; }
+  .bar-col .name { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .ci-whisker { position: absolute; left: 50%; width: 1px; background: rgba(255,255,255,0.35); transform: translateX(-50%); }
+  .headline-figs { display: flex; gap: 28px; margin-top: 14px; flex-wrap: wrap; }
+  .headline-figs .fig .value { font-size: 20px; font-weight: 700; }
+  .headline-figs .fig .value.money { color: var(--money); }
+  .headline-figs .fig .label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+
+<div id="degraded" class="degraded-banner">⚠ DEGRADED MODE — LLM and/or Razorpay unreachable. Falling back to rules and templates. No automated action executes without a human.</div>
+
+<header>
+  <div class="title">Recovery Command Center</div>
+  <div class="stat"><span class="label">Revenue at risk</span><span class="value num" id="stat-risk">—</span></div>
+  <div class="stat"><span class="label">Portfolio</span><span class="value num" id="stat-count">—</span></div>
+  <div class="stat"><span class="label">Dispute rate</span><span class="value num" id="stat-dispute">—</span></div>
+  <div class="stat"><span class="label">Actions today</span><span class="value num" id="stat-budget">—</span></div>
+</header>
+
+<div id="eval-chart-section" style="padding: 16px 24px 0;"></div>
+
+<div class="layout">
+  <div class="queue">
+    <h2>Invoices</h2>
+    <div id="invoice-list"></div>
+  </div>
+
+  <div class="detail" id="detail">
+    <div class="placeholder">Select an invoice to see its diagnosis, ranking, and policy decision.</div>
+  </div>
+</div>
+
+<script>
+const API = "";
+let currentBatchId = null;
+let currentInvoiceId = null;
+
+function fmtRupees(paise) {
+  return "₹" + Math.round(paise / 100).toLocaleString("en-IN");
+}
+function fmtPct(x) { return (x * 100).toFixed(1) + "%"; }
+
+async function boot() {
+  const batches = await fetch(API + "/batches").then(r => r.json());
+  if (!batches.length) {
+    document.getElementById("invoice-list").innerHTML = '<div class="placeholder">No batches yet — seed one via POST /batches.</div>';
+    return;
+  }
+  currentBatchId = batches[0].batch_id;
+  await loadSummary();
+  await loadInvoices();
+  await loadEvaluationChart();
+  pollChaosState();
+  setInterval(pollChaosState, 3000);
+}
+
+async function pollChaosState() {
+  // The chaos switch (plan.md §6.8) is a real process-wide flag — the same
+  // one extract_reply()/execute_tool() check on every real call, not a
+  // separate demo-only code path. Polling every 3s so flipping it via
+  // POST /demo/chaos in another terminal shows up live without a reload,
+  // which is what the video beat actually needs.
+  try {
+    const chaos = await fetch(`${API}/demo/chaos`).then(r => r.json());
+    const banner = document.getElementById("degraded");
+    const down = chaos.llm_down || chaos.razorpay_down;
+    banner.classList.toggle("show", down);
+    if (down) {
+      const parts = [];
+      if (chaos.llm_down) parts.push("LLM");
+      if (chaos.razorpay_down) parts.push("Razorpay");
+      banner.textContent = `⚠ DEGRADED MODE — ${parts.join(" and ")} unreachable. Falling back to rules and templates. No automated action executes without a human.`;
+    }
+  } catch (e) { /* dashboard keeps working even if this one poll fails */ }
+}
+
+async function loadSummary() {
+  const s = await fetch(`${API}/batches/${currentBatchId}/summary`).then(r => r.json());
+  document.getElementById("stat-risk").innerHTML = fmtRupees(s.revenue_at_risk_paise) + '<span class="sim-chip">SIM</span>';
+  document.getElementById("stat-count").textContent = s.invoice_count.toLocaleString("en-IN");
+  document.getElementById("stat-dispute").textContent = fmtPct(s.dispute_rate);
+}
+
+async function loadInvoices() {
+  const invoices = await fetch(`${API}/invoices?batch_id=${currentBatchId}`).then(r => r.json());
+  const list = document.getElementById("invoice-list");
+  list.innerHTML = "";
+  let actionsToday = 0;
+  for (const inv of invoices.slice(0, 60)) {
+    const row = document.createElement("div");
+    row.className = "inv-row";
+    row.dataset.id = inv.id;
+    row.innerHTML = `
+      <div>
+        <div class="id">${inv.invoice_number}</div>
+        <div class="amt num">${fmtRupees(inv.amount_paise)}</div>
+      </div>
+      ${inv.dispute_flag ? '<span class="badge disputed">DISPUTED</span>' : ''}
+    `;
+    row.addEventListener("click", () => selectInvoice(inv.id, row));
+    list.appendChild(row);
+  }
+  document.getElementById("stat-budget").textContent = `${actionsToday}/120`;
+}
+
+async function selectInvoice(id, rowEl) {
+  currentInvoiceId = id;
+  document.querySelectorAll(".inv-row").forEach(r => r.classList.remove("active"));
+  if (rowEl) rowEl.classList.add("active");
+
+  const detail = document.getElementById("detail");
+  detail.innerHTML = '<div class="placeholder">Evaluating…</div>';
+
+  const [evalResult, invoice, auditEvents, verify] = await Promise.all([
+    fetch(`${API}/invoices/${id}/evaluate`, { method: "POST" }).then(r => r.json()),
+    fetch(`${API}/invoices/${id}`).then(r => r.json()),
+    fetch(`${API}/invoices/${id}/audit`).then(r => r.json()),
+    fetch(`${API}/invoices/${id}/audit/verify`).then(r => r.json()),
+  ]);
+
+  renderDetail(evalResult, invoice, auditEvents, verify);
+}
+
+function renderDetail(ev, invoice, auditEvents, verify) {
+  const detail = document.getElementById("detail");
+
+  const rankedRows = ev.considered.map(c => {
+    const cls = c.rank === 0 && !c.ladder_eligible ? "gated" : (c.action === ev.recommended_action ? "chosen" : "");
+    const note = c.note ? ` <span style="color:var(--risk); font-weight:600;">GATED</span>` : "";
+    return `<tr class="${cls}">
+      <td>${c.rank + 1}</td>
+      <td>${c.action}</td>
+      <td class="num">${fmtPct(c.p)}</td>
+      <td class="num">${c.ev}${note}</td>
+    </tr>`;
+  }).join("");
+
+  const policyReasons = ev.policy.because.length
+    ? ev.policy.because.map(r => `<li>${r}</li>`).join("")
+    : '<li>No policy rules matched — nothing to gate.</li>';
+
+  const auditDots = auditEvents.map(e => `<span class="audit-dot" title="${e.kind}"></span>`).join("");
+  const verifyBadge = verify.intact
+    ? `<span class="verify-badge ok">🔒 chain verified</span>`
+    : `<span class="verify-badge bad">⚠ chain broken</span>`;
+
+  const canAct = ev.policy.outcome === "allow" || ev.policy.outcome === "substitute";
+
+  detail.innerHTML = `
+    <div class="card">
+      <h3>Invoice</h3>
+      <div style="display:flex; justify-content:space-between; align-items:baseline;">
+        <div class="diag-code">${ev.invoice}</div>
+        <div class="num" style="font-size:18px; font-weight:700;">${ev.amount}</div>
+      </div>
+      <div style="color:var(--text-dim); font-size:12.5px; margin-top:2px;">${ev.days_overdue} days overdue</div>
+    </div>
+
+    <div class="card">
+      <h3>Diagnosis <span style="color:var(--text-dim); font-weight:400;">(${ev.diagnosis.rule}, confidence ${fmtPct(ev.diagnosis.confidence)})</span></h3>
+      <div class="diag-code">${ev.diagnosis.code}</div>
+      <div style="color:var(--text-dim); font-size:12.5px; margin-top:4px;">${ev.diagnosis.explanation}</div>
+      <ul class="diag-signals">${ev.diagnosis.because.map(s => `<li>${s}</li>`).join("")}</ul>
+    </div>
+
+    <div class="card">
+      <h3>Ranked actions</h3>
+      <table>
+        <thead><tr><th>Rank</th><th>Action</th><th>P(recover)</th><th>Expected value</th></tr></thead>
+        <tbody>${rankedRows}</tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h3>Policy <span style="color:var(--text-dim); font-weight:400;">v${ev.policy.version}</span></h3>
+      <span class="policy-outcome ${ev.policy.outcome}">${ev.policy.outcome.replace("_", " ")}</span>
+      <ul class="policy-reasons">${policyReasons}</ul>
+      <div style="margin-top:12px; font-size:13px; color:var(--text-dim);">${ev.final}</div>
+      <div class="actions-row">
+        <button id="act-btn" ${canAct ? "" : "disabled style='opacity:0.4;cursor:not-allowed;'"}>Execute recommended action</button>
+        <button class="secondary" onclick="selectInvoice('${currentInvoiceId}')">Re-evaluate</button>
+      </div>
+      <div id="act-result" style="margin-top:10px; font-size:12.5px; color:var(--text-dim);"></div>
+    </div>
+
+    <div class="card">
+      <h3>Audit timeline ${verifyBadge}</h3>
+      <div class="audit-dots">${auditDots || '<span style="color:var(--text-dim);">No events yet.</span>'}</div>
+    </div>
+  `;
+
+  const actBtn = document.getElementById("act-btn");
+  if (actBtn && canAct) {
+    actBtn.addEventListener("click", async () => {
+      actBtn.disabled = true;
+      actBtn.textContent = "Executing…";
+      const result = await fetch(`${API}/invoices/${currentInvoiceId}/act`, { method: "POST" }).then(r => r.json());
+      document.getElementById("act-result").innerHTML =
+        `<strong>${result.idempotent_replay ? "Already executed (idempotent replay)" : "Executed"}:</strong> ${result.action} via ${result.tool_name}`;
+      actBtn.textContent = "Execute recommended action";
+      actBtn.disabled = false;
+      selectInvoice(currentInvoiceId);
+    });
+  }
+}
+
+async function loadEvaluationChart() {
+  const summary = await fetch(`${API}/evaluation/summary?seed=42&size=300`).then(r => r.json());
+  const container = document.createElement("div");
+  container.className = "card";
+  const arms = [
+    { key: "agent", label: "Agent", color: "var(--accent)" },
+    { key: "baseline", label: "Baseline", color: "var(--risk)" },
+    { key: "holdout", label: "Holdout", color: "var(--text-dim)" },
+  ];
+  const maxH = 100;
+  const bars = arms.map(a => {
+    const m = summary.arms[a.key];
+    const h = Math.max(4, m.recovery_rate * maxH);
+    const ciLo = m.ci[0] * maxH, ciHi = m.ci[1] * maxH;
+    return `<div class="bar-col">
+      <div class="bar-track">
+        <div class="bar" style="height:${h}px; background:${a.color};"></div>
+        <div class="ci-whisker" style="bottom:${ciLo}px; height:${Math.max(0, ciHi - ciLo)}px;"></div>
+      </div>
+      <div class="pct num">${fmtPct(m.recovery_rate)}</div>
+      <div class="name">${a.label} (n=${m.n})</div>
+    </div>`;
+  }).join("");
+
+  container.innerHTML = `
+    <h3>Three-arm recovery <span style="color:var(--text-dim); font-weight:400;">(${summary.env}, live single-seed recompute — see reports/evaluation.md for the full 10-seed report)</span></h3>
+    <div class="chart-row">${bars}</div>
+    <div class="headline-figs">
+      <div class="fig">
+        <div class="value money num">${fmtRupees(summary.incremental_recovery_paise)} <span class="sim-chip">SIM</span></div>
+        <div class="label">Incremental recovery vs holdout</div>
+      </div>
+      <div class="fig">
+        <div class="value num">${(summary.uplift_vs_baseline * 100).toFixed(1)}pp</div>
+        <div class="label">Uplift vs fixed cadence</div>
+      </div>
+      <div class="fig">
+        <div class="value num">${fmtPct(summary.suppression_precision)}</div>
+        <div class="label">Suppression precision</div>
+      </div>
+    </div>
+  `;
+  document.getElementById("eval-chart-section").appendChild(container);
+}
+
+boot();
+</script>
+
+</body>
+</html>
