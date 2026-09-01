@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.audit.explain import build_explanation
+from app.audit.explain import build_explanation, narrate_audit_event
 from app.audit.writer import verify_invoice_chain, write_audit_event
 from app.db.models import (
     Action,
@@ -356,6 +356,7 @@ async def get_audit(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_s
             "prev_hash": r.prev_hash,
             "hash": r.hash,
             "created_at": r.created_at.isoformat(),
+            "narrative": narrate_audit_event(r.kind, r.payload or {}),
         }
         for r in rows
     ]

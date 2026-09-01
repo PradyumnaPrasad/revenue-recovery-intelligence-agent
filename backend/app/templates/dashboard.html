@@ -113,6 +113,29 @@
   .headline-figs .fig .value { font-size: 20px; font-weight: 700; }
   .headline-figs .fig .value.money { color: var(--money); }
   .headline-figs .fig .label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+  /* Counterfactual card */
+  .card.diverges { border-color: var(--risk); }
+  .cf-row { display: flex; align-items: stretch; gap: 14px; margin-top: 8px; }
+  .cf-col { flex: 1; background: var(--panel-2); border-radius: 6px; padding: 10px 12px; }
+  .cf-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+  .cf-action { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; }
+  .cf-reason { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+  .cf-arrow { display: flex; align-items: center; font-size: 11px; color: var(--text-dim); font-weight: 700; }
+
+  /* Narrated audit trail */
+  .audit-narrative { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .audit-narrative li { font-size: 12.5px; border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; }
+  .audit-time { color: var(--text-dim); font-size: 11px; margin-right: 6px; }
+
+  /* Portfolio ROI card */
+  .roi-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .roi-step { text-align: center; }
+  .roi-value { font-size: 18px; font-weight: 700; }
+  .roi-value.money { color: var(--money); }
+  .roi-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; max-width: 150px; margin-top: 2px; }
+  .roi-op { font-size: 18px; color: var(--text-dim); font-weight: 700; }
+  .roi-final .roi-value { font-size: 24px; }
 </style>
 </head>
 <body>
@@ -250,11 +273,16 @@ function renderDetail(ev, invoice, auditEvents, verify) {
     : '<li>No policy rules matched — nothing to gate.</li>';
 
   const auditDots = auditEvents.map(e => `<span class="audit-dot" title="${e.kind}"></span>`).join("");
+  const auditLines = auditEvents.length
+    ? auditEvents.map(e => `<li><span class="audit-time">${new Date(e.created_at).toLocaleString()}</span> ${e.narrative}</li>`).join("")
+    : '<li style="color:var(--text-dim);">No events yet.</li>';
   const verifyBadge = verify.intact
     ? `<span class="verify-badge ok">🔒 chain verified</span>`
     : `<span class="verify-badge bad">⚠ chain broken</span>`;
 
   const canAct = ev.policy.outcome === "allow" || ev.policy.outcome === "substitute";
+  const cf = ev.counterfactual;
+  const cfClass = cf.diverges ? "diverges" : "";
 
   detail.innerHTML = `
     <div class="card">
@@ -271,6 +299,23 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       <div class="diag-code">${ev.diagnosis.code}</div>
       <div style="color:var(--text-dim); font-size:12.5px; margin-top:4px;">${ev.diagnosis.explanation}</div>
       <ul class="diag-signals">${ev.diagnosis.because.map(s => `<li>${s}</li>`).join("")}</ul>
+    </div>
+
+    <div class="card ${cfClass}">
+      <h3>Baseline vs. this system ${cf.diverges ? '<span class="policy-outcome substitute">DIVERGES</span>' : ''}</h3>
+      <div class="cf-row">
+        <div class="cf-col">
+          <div class="cf-label">A fixed cadence would do</div>
+          <div class="cf-action">${cf.baseline_action}</div>
+          <div class="cf-reason">${cf.baseline_reason}</div>
+        </div>
+        <div class="cf-arrow">vs</div>
+        <div class="cf-col">
+          <div class="cf-label">This system actually decided</div>
+          <div class="cf-action">${cf.agent_summary}</div>
+          <div class="cf-reason">${ev.diagnosis.explanation}</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -296,6 +341,7 @@ function renderDetail(ev, invoice, auditEvents, verify) {
     <div class="card">
       <h3>Audit timeline ${verifyBadge}</h3>
       <div class="audit-dots">${auditDots || '<span style="color:var(--text-dim);">No events yet.</span>'}</div>
+      <ul class="audit-narrative">${auditLines}</ul>
     </div>
   `;
 
@@ -357,6 +403,33 @@ async function loadEvaluationChart() {
     </div>
   `;
   document.getElementById("eval-chart-section").appendChild(container);
+
+  const roi = document.createElement("div");
+  roi.className = "card roi-card";
+  roi.innerHTML = `
+    <h3>Portfolio ROI <span style="color:var(--text-dim); font-weight:400;">— the one number, not the chart</span></h3>
+    <div style="color:var(--text-dim); font-size:12px; margin-bottom:10px;">
+      Out of ${fmtRupees(summary.portfolio_value_paise)} across the portfolio, this system doesn't just
+      recover more than doing nothing — it recovers more than doing nothing costs.
+    </div>
+    <div class="roi-row">
+      <div class="roi-step">
+        <div class="roi-value num">${fmtRupees(summary.incremental_recovery_paise)}</div>
+        <div class="roi-label">Incremental recovery vs. no-contact holdout</div>
+      </div>
+      <div class="roi-op">−</div>
+      <div class="roi-step">
+        <div class="roi-value num">${fmtRupees(summary.agent_action_cost_paise)}</div>
+        <div class="roi-label">Cost of every action taken to get it</div>
+      </div>
+      <div class="roi-op">=</div>
+      <div class="roi-step roi-final">
+        <div class="roi-value num money">${fmtRupees(summary.net_recovery_paise)} <span class="sim-chip">SIM</span></div>
+        <div class="roi-label">Net incremental recovery, after cost</div>
+      </div>
+    </div>
+  `;
+  document.getElementById("eval-chart-section").appendChild(roi);
 }
 
 boot();

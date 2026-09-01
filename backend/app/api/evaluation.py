@@ -47,4 +47,19 @@ async def evaluation_summary(seed: int = 42, size: int = 300, env: str = "E_trai
         "incremental_recovery_paise": h.incremental_recovery_paise,
         "uplift_vs_baseline": h.uplift_vs_baseline,
         "suppression_precision": h.suppression_precision,
+        # Portfolio ROI — plan.md's "wow factor" pass: judges remember one
+        # number, not a chart. net_recovery_paise is the honest bottom
+        # line: incremental recovery MINUS what it cost to go get it,
+        # because the agent spends more per invoice than doing nothing (it
+        # takes real actions with real cost_paise) — the claim is that the
+        # incremental recovery still comfortably exceeds that spend, not
+        # that the agent is cheaper than silence.
+        "portfolio_value_paise": (
+            h.agent.portfolio_value_paise + h.baseline.portfolio_value_paise + h.holdout.portfolio_value_paise
+        ),
+        "agent_recovered_paise": h.agent.recovered_paise,
+        "holdout_recovered_paise": h.holdout.recovered_paise,
+        "agent_action_cost_paise": h.agent.total_action_cost_paise,
+        "net_recovery_paise": h.incremental_recovery_paise - h.agent.total_action_cost_paise,
+        "cost_of_recovery_paise_per_100": h.cost_of_recovery_paise_per_100,
     }

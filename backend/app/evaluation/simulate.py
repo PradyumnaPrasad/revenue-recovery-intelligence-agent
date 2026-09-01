@@ -29,6 +29,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from app.domain.baseline import BASELINE_CADENCE
 from app.domain.diagnosis import diagnose
 from app.domain.policy.engine import evaluate as evaluate_policy
 from app.domain.policy.engine import load_policy
@@ -54,16 +55,11 @@ HORIZON_DAYS = 90
 _POLICY = load_policy()
 _ACTION_CONFIG = load_action_config()
 
-# Fixed-cadence baseline — plan.md §6.11: D+1 reminder, D+7 reminder,
-# D+15 payment-link resend, D+30 escalate. Applied identically regardless
-# of diagnosis; that sameness is precisely what the agent is measured
-# against.
-_BASELINE_CADENCE: list[tuple[int, ActionKey]] = [
-    (1, ActionKey.send_reminder),
-    (7, ActionKey.send_reminder),
-    (15, ActionKey.resend_payment_link),
-    (30, ActionKey.escalate_to_am),
-]
+# Fixed-cadence baseline — plan.md §6.11, now shared with the live
+# counterfactual display (app/domain/baseline.py) so the dashboard's "what
+# would the naive cadence do" and this measurement's baseline arm can never
+# silently drift apart into two different definitions of "baseline."
+_BASELINE_CADENCE = BASELINE_CADENCE
 
 # The agent gets the SAME four touchpoints — see this module's docstring
 # for why equal opportunity between arms is not optional.

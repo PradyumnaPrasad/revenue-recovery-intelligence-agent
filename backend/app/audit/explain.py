@@ -7,6 +7,7 @@ instead of asserted in a README.
 """
 from __future__ import annotations
 
+from app.domain.baseline import baseline_next_action
 from app.domain.policy.types import PolicyResult
 from app.domain.ranking import RankedAction
 from app.domain.types import Diagnosis
@@ -72,6 +73,23 @@ def build_explanation(
     else:
         final = f"Approved — executing {recommended_action}."
 
+    # Counterfactual: what a naive, diagnosis-blind fixed cadence
+    # (app/domain/baseline.py — the same one the three-arm measurement
+    # scores itself against) would be doing to this exact invoice right
+    # now, next to what this system actually decided and why. Making the
+    # "policy overrides the naive choice" claim visible on one invoice,
+    # not just asserted in aggregate metrics.
+    baseline_action = baseline_next_action(days_overdue)
+    outcome_differs = baseline_action.value != recommended_action or policy.outcome != "allow"
+    if policy.outcome == "block":
+        agent_summary = f"blocked — {policy.reasons[0].reason}" if policy.reasons else "blocked"
+    elif policy.outcome == "substitute":
+        agent_summary = f"substituted to {policy.substituted_action}"
+    elif policy.outcome == "require_approval":
+        agent_summary = f"{recommended_action}, held for human approval"
+    else:
+        agent_summary = recommended_action or "no eligible action"
+
     return {
         "invoice": invoice_number,
         "amount": format_rupees(amount_paise),
@@ -94,4 +112,35 @@ def build_explanation(
         },
         "model_version": model_version,
         "final": final,
+        "counterfactual": {
+            "baseline_action": baseline_action.value,
+            "baseline_reason": (
+                f"Fixed cadence: at {days_overdue} days overdue, every invoice — "
+                "regardless of diagnosis, dispute status, or contact history — "
+                f"gets '{baseline_action.value}' next."
+            ),
+            "agent_summary": agent_summary,
+            "diverges": outcome_differs,
+        },
     }
+
+
+def narrate_audit_event(kind: str, payload: dict) -> str:
+    """One plain-English line per audit event, for the dashboard's
+    narrated timeline — the same events already written to the
+    tamper-evident chain, read back as a story a non-technical viewer can
+    follow without decoding raw JSON.
+    """
+    if kind == "invoice_ingested":
+        return "Invoice entered the system."
+    if kind == "action_executed":
+        action = payload.get("action", "an action")
+        tool = payload.get("tool_name")
+        return f"Executed '{action}'" + (f" via {tool}." if tool else ".")
+    if kind == "action_failed":
+        action = payload.get("action", "an action")
+        return f"Attempted '{action}' — failed, no charge or message was sent."
+    # Unrecognized kinds still narrate something rather than going blank —
+    # future audit event kinds (e.g. a webhook-linked event, not yet built)
+    # fall through here honestly instead of silently rendering nothing.
+    return kind.replace("_", " ").capitalize() + "."

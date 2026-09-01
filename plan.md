@@ -84,6 +84,42 @@ to the gap between "works in my dev checkout" and "works from a stranger's
 | **F10** | **Found live while browser-testing the dashboard's "gated action" display.** `/evaluate` and `/act` called `rank_actions()` with `history=[]` unconditionally — so the escalation ladder's cooldown/rung constraints could never actually apply, even moments after a real action had been executed on the same invoice. Fixed: `_decide()` now queries the invoice's real executed `Action` rows and builds genuine `ActionHistoryEntry` objects with `days_ago` computed from each action's real `executed_at`. Two more, smaller bugs surfaced and were fixed in the same browser-testing pass: `format_rupees()` used Python's `:,` (Western digit grouping) while the dashboard's frontend used `toLocaleString("en-IN")` (Indian grouping), so the same amount showed "Rs 362,554" in one place and "Rs 3,62,554" in another on one screen; and inserting the evaluation chart as a DOM sibling inside the dashboard's CSS Grid broke the grid's auto-placement, silently collapsing the detail pane to the queue's width three rows down the page. | Re-evaluating an invoice right after executing `send_upi_payment_link` on it now correctly shows that action `ladder_eligible: false` with a "highest EV but gated" note, and a lower-ranked action becomes the real recommendation — verified both via the API response and visually in the browser (struck-through row, GATED label) | **D7 (compressed)** |
 | **F11** | **Found only by a real cold-clone check** (rsync to `/tmp`, isolated Docker Compose project name, remapped host ports — genuinely fresh containers/volumes/network, no shared state with the dev checkout). `tests/unit/test_policy_engine.py::test_no_eval_or_exec_in_app` computed its `grep` working directory via `__file__.rsplit("/backend/", 1)[0] + "/backend"` — a string match on the literal path segment `"/backend/"`. That segment exists in a local checkout (`.../Revenue Recovery Intelligence Agent/backend/tests/...`) but not inside the Docker image, where the same file lives at `/code/tests/unit/test_policy_engine.py` with no `"backend"` segment at all — `rsplit` silently found nothing to split on and produced a garbage path, crashing the test with `NotADirectoryError`. A second, related discovery in the same pass: `docker-compose.yml` mounts `./app`, `./policies`, and `./config` as live volumes but deliberately does not mount `./tests` — so `tests/` inside a running container is a static `COPY` from image build time, and a host-side edit to a test file needs an image rebuild (`docker compose up -d --build`), not just a file save, before it's visible in the container. This is correct scoping (tests aren't meant to hot-reload against a running server), but worth knowing so a "the container didn't pick up my fix" moment doesn't get misdiagnosed as a Docker bug. Fixed: the test now computes its root via `Path(__file__).resolve().parents[2]` — structural (this file is always `tests/unit/<name>.py`, two directories under the project root) rather than name-based, so it's correct on any checkout path and inside any container regardless of what the root directory is called. | Local host: 145/145 passed before the fix (bug invisible there). Isolated cold-clone container, before the fix: `NotADirectoryError: [Errno 20] Not a directory: '/code/tests/unit/test_policy_engine.py/backend'`. After the fix + image rebuild, same isolated container: 145/145 passed. Isolated stack torn down clean afterward (`docker compose down -v`); original stack confirmed untouched throughout (540 invoices intact, `/health` OK). | **Post-D9, pre-submission** |
 
+### 1.1a Three presentation-layer additions, post-D9, pre-submission
+
+None of these change any decision logic — they surface data the system
+already computed, for a judge watching a 5-minute video rather than reading
+API responses. Built and verified live against the running stack (150/150
+tests, up from 145, after adding `tests/unit/test_baseline_counterfactual.py`).
+
+- **Counterfactual side-by-side** (`app/domain/baseline.py`,
+  `build_explanation()`'s new `counterfactual` field). Every invoice's
+  evaluate response now states what a naive, diagnosis-blind fixed cadence
+  would do to it right now, next to what this system actually decided —
+  making "the policy overrides the naive choice" visible on one invoice
+  instead of asserted in aggregate metrics. `app/evaluation/simulate.py`'s
+  baseline arm now imports its cadence from this same module, so the live
+  counterfactual and the three-arm measurement can never silently define
+  "baseline" two different ways. Verified live on INV-1017
+  (`channel_failure`, 3 days overdue): fixed cadence says `send_reminder`;
+  this system says `send_upi_payment_link`, because a payment link was
+  already sent and never opened — reminders don't fix a channel problem.
+- **Portfolio ROI card** (`/evaluation/summary`'s new fields,
+  dashboard's "Portfolio ROI" card). One arithmetic chain, not a chart:
+  incremental recovery vs. holdout, minus the real cost of every action
+  taken to get it, equals net incremental recovery. Verified live at
+  seed=42/size=300: ₹5,68,84,482 − ₹1,58,442 = ₹5,67,26,040, matching the
+  card's displayed subtraction exactly — checked so a judge doing the
+  mental math on screen doesn't catch an inconsistency.
+- **Narrated audit trail** (`narrate_audit_event()` in `app/audit/explain.py`,
+  a new `narrative` field on every `/invoices/{id}/audit` row). The same
+  hash-chained events, rendered as plain-English lines instead of raw JSON.
+  Honestly thin today — only `invoice_ingested` and `action_executed`/
+  `action_failed` are ever written, since `/evaluate` is deliberately
+  side-effect-free (documented in its own docstring) and the webhook
+  receiver doesn't yet link back to an invoice's audit trail. Worth
+  stating if asked rather than letting the UI imply a richer trail than
+  what's actually recorded.
+
 ### 1.2 What the track bar demands that v2 under-weighted
 
 Re-reading the published track brief and the buildathon's stated evaluation
