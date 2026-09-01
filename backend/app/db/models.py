@@ -17,6 +17,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Identity,
     Integer,
     String,
     Text,
@@ -164,6 +165,22 @@ class AuditEvent(Base):
     __table_args__ = (UniqueConstraint("idempotency_key", name="uq_audit_idempotency_key"),)
 
     id: Mapped[uuid.UUID] = uuid_pk()
+    # Found live during a real end-to-end webhook test: this project's
+    # simulated/demo clock stamps every event with the SAME created_at
+    # (e.g. every audit row shows "2026-01-01 09:00:00+00" regardless of
+    # when it was actually written), and `id` is a random UUID with zero
+    # correlation to insertion order. _tip_hash() and verify_chain()
+    # relied on `ORDER BY created_at DESC` alone with no tiebreaker, which
+    # is genuinely ambiguous once an invoice has 2+ prior events under a
+    # frozen clock — Postgres can return either row for a tie. A real
+    # payment webhook wrote a `payment_received` event whose prev_hash
+    # ended up pointing at `invoice_ingested`'s hash instead of
+    # `action_executed`'s, and /audit/verify correctly caught it:
+    # `intact: false`. `seq` is a genuine, monotonically increasing
+    # identity column — independent of both the UUID and the clock — so
+    # chain order is never ambiguous again, regardless of how many events
+    # share a timestamp.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=True), unique=True, nullable=False)
     invoice_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=True)
     kind: Mapped[str] = mapped_column(String(50), nullable=False)
     actor: Mapped[str] = mapped_column(String(50), nullable=False, default="system")

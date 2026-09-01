@@ -147,6 +147,10 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
     if kind == "action_failed":
         action = payload.get("action", "an action")
         return f"Attempted '{action}' — failed, no charge or message was sent."
+    if kind == "payment_received":
+        amount = payload.get("amount_paid_paise")
+        amount_str = format_rupees(amount) if isinstance(amount, int) else "an unknown amount"
+        return f"Payment received via Razorpay webhook: {amount_str} — invoice marked paid."
     # Unrecognized kinds still narrate something rather than going blank —
     # future audit event kinds (e.g. a webhook-linked event, not yet built)
     # fall through here honestly instead of silently rendering nothing.

@@ -17,10 +17,15 @@ from app.domain.clock import Clock
 async def _tip_hash(session: AsyncSession, invoice_id: uuid.UUID | None) -> str:
     if invoice_id is None:
         return GENESIS_HASH
+    # Ordered by `seq`, not `created_at` — found live (see AuditEvent.seq's
+    # docstring): under this project's frozen demo clock, multiple events
+    # on the same invoice can share an identical created_at, making
+    # "the most recent event" genuinely ambiguous to Postgres. `seq` is a
+    # real monotonic identity column, so the tip is always unambiguous.
     stmt = (
         select(AuditEvent.hash)
         .where(AuditEvent.invoice_id == invoice_id)
-        .order_by(AuditEvent.created_at.desc())
+        .order_by(AuditEvent.seq.desc())
         .limit(1)
     )
     result = await session.execute(stmt)
@@ -68,10 +73,13 @@ async def write_audit_event(
 async def verify_invoice_chain(session: AsyncSession, invoice_id: uuid.UUID) -> tuple[bool, int]:
     from app.audit.chain import verify_chain
 
+    # seq, not created_at, for the same reason as _tip_hash above — the
+    # chain was actually built in seq order, so verification must walk it
+    # in that same order, not one that ties can scramble.
     stmt = (
         select(AuditEvent)
         .where(AuditEvent.invoice_id == invoice_id)
-        .order_by(AuditEvent.created_at.asc())
+        .order_by(AuditEvent.seq.asc())
     )
     result = await session.execute(stmt)
     rows = result.scalars().all()

@@ -20,13 +20,24 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import WebhookEvent
+from app.audit.writer import write_audit_event
+from app.db.models import Invoice, WebhookEvent
 from app.db.session import get_session
 from app.settings import get_settings
 
 router = APIRouter(tags=["webhooks"])
 
 HANDLED_EVENTS = {"payment_link.paid", "payment.captured", "payment.failed"}
+
+# Events that actually update an invoice, not just get stored. Found live
+# during a real end-to-end test (a genuine payment link, paid, webhook
+# delivered through a cloudflared tunnel): HANDLED_EVENTS was returned in
+# the response as "handled": true, but nothing downstream ever happened --
+# Invoice.status never changed, no audit event was written. "Handled" was
+# a lie. payment_link.paid is the one event that reliably carries the
+# payment_link id needed to correlate back to an invoice at all
+# (payment.captured alone does not, without also tracking order_id).
+_INVOICE_CLOSING_EVENTS = {"payment_link.paid"}
 
 
 def _verify_signature(body: bytes, signature: str, secret: str) -> bool:
@@ -69,10 +80,56 @@ async def razorpay_webhook(request: Request, session: AsyncSession = Depends(get
     from app.deps import get_clock
 
     clock = get_clock()
-    row = WebhookEvent(
-        event_id=event_id, event_type=event_type, payload=payload, received_at=clock.now()
-    )
+    now = clock.now()
+    row = WebhookEvent(event_id=event_id, event_type=event_type, payload=payload, received_at=now)
     session.add(row)
+
+    invoice_updated = False
+    invoice_id: str | None = None
+    if event_type in _INVOICE_CLOSING_EVENTS:
+        plink_id = (
+            payload.get("payload", {})
+            .get("payment_link", {})
+            .get("entity", {})
+            .get("id")
+        )
+        if plink_id:
+            invoice_stmt = select(Invoice).where(Invoice.razorpay_payment_link_id == plink_id)
+            invoice = (await session.execute(invoice_stmt)).scalars().first()
+            if invoice is not None:
+                invoice.status = "paid"
+                invoice_updated = True
+                invoice_id = str(invoice.id)
+                amount_paid = (
+                    payload.get("payload", {})
+                    .get("payment_link", {})
+                    .get("entity", {})
+                    .get("amount_paid")
+                )
+                await write_audit_event(
+                    session=session,
+                    clock=clock,
+                    invoice_id=invoice.id,
+                    kind="payment_received",
+                    payload={
+                        "event": event_type,
+                        "payment_link_id": plink_id,
+                        "amount_paid_paise": amount_paid,
+                        "razorpay_event_id": event_id,
+                    },
+                    actor="razorpay_webhook",
+                    idempotency_key=event_id,
+                )
+        # A closing event with no matching invoice (unknown plink_id, or
+        # one this system never issued) is stored honestly as unmatched,
+        # not silently dropped and not falsely reported as handled.
+
     await session.commit()
 
-    return {"status": "received", "event_id": event_id, "handled": event_type in HANDLED_EVENTS}
+    return {
+        "status": "received",
+        "event_id": event_id,
+        "handled": event_type in HANDLED_EVENTS,
+        "invoice_updated": invoice_updated,
+        "invoice_id": invoice_id,
+    }

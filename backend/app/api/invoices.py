@@ -329,6 +329,17 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
         executed_at=now,
     )
     session.add(action_row)
+
+    # Found live: Invoice.razorpay_payment_link_id and .payment_link_sent
+    # were real columns that were never written anywhere — meaning an
+    # incoming webhook had no way to correlate back to this invoice at
+    # all. A real payment link was being created every time, but nothing
+    # downstream could ever recognize it came back paid.
+    if tool_result.success and tool_result.tool_name == "razorpay.create_payment_link":
+        plink_id = tool_result.response.get("id")
+        if plink_id:
+            invoice.razorpay_payment_link_id = plink_id
+        invoice.payment_link_sent = True
     await write_audit_event(
         session=session,
         clock=clock,
@@ -356,10 +367,14 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
 
 @router.get("/invoices/{invoice_id}/audit")
 async def get_audit(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    # seq, not created_at — see AuditEvent.seq's docstring. The demo's
+    # frozen clock can stamp multiple events with the identical
+    # created_at, which would otherwise let the dashboard display them in
+    # a different order than the hash chain was actually built in.
     stmt = (
         select(AuditEvent)
         .where(AuditEvent.invoice_id == invoice_id)
-        .order_by(AuditEvent.created_at.asc())
+        .order_by(AuditEvent.seq.asc())
     )
     rows = (await session.execute(stmt)).scalars().all()
     return [
