@@ -117,6 +117,7 @@ class _Decision:
     ranked: list
     top: object
     policy_result: object
+    customer: Customer | None
 
 
 async def _decide(session: AsyncSession, invoice: Invoice, now) -> _Decision:
@@ -179,7 +180,9 @@ async def _decide(session: AsyncSession, invoice: Invoice, now) -> _Decision:
         batch=BatchContext(actions_today=0, action_budget=settings.daily_action_budget),
     )
     policy_result = evaluate_policy(_POLICY, policy_context, top.action)
-    return _Decision(facts=facts, diagnosis=diagnosis, ranked=ranked, top=top, policy_result=policy_result)
+    return _Decision(
+        facts=facts, diagnosis=diagnosis, ranked=ranked, top=top, policy_result=policy_result, customer=customer
+    )
 
 
 @router.post("/invoices/{invoice_id}/evaluate")
@@ -229,7 +232,7 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     clock = get_clock()
     now = clock.now()
     decision = await _decide(session, invoice, now)
-    top, policy_result = decision.top, decision.policy_result
+    top, policy_result, customer = decision.top, decision.policy_result, decision.customer
 
     if policy_result.outcome == "block":
         raise HTTPException(
@@ -296,7 +299,19 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
             "response": existing.response,
         }
 
-    tool_result = execute_tool(action_to_execute, str(invoice_id), invoice.invoice_number, invoice.amount_paise)
+    # customer_name/customer_email found missing live: every drafted
+    # message had no recipient at all, even though Customer.name/.email
+    # are real generated fields sitting right there in the DB — an
+    # invoice-recovery email with no "To:" and no greeting is not
+    # something a judge should be shown as proof of a real action.
+    tool_result = execute_tool(
+        action_to_execute,
+        str(invoice_id),
+        invoice.invoice_number,
+        invoice.amount_paise,
+        customer_name=customer.name if customer else None,
+        customer_email=customer.email if customer else None,
+    )
     cost_paise = 0
     if action_to_execute in {a.value for a in ActionKey}:
         cost_paise = _ACTION_CONFIG.actions[ActionKey(action_to_execute)].cost_paise

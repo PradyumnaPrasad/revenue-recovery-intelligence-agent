@@ -300,12 +300,21 @@ function renderActResult(result) {
   // plainly that it's drafted, not delivered — no SMTP/SMS/voice provider
   // is connected in this build.
   if (r.subject || r.body) {
+    // Found live: the recipient was missing entirely -- an
+    // invoice-recovery email drafted with no "To:" and no customer name
+    // is not credible proof of anything. Customer.name/.email are real
+    // fields already in the DB; a missing one here (r.to falsy) is shown
+    // honestly as "no email on file," not silently blanked.
+    const toLine = r.to
+      ? `${r.to_name ? r.to_name + " &lt;" + r.to + "&gt;" : r.to}`
+      : `<span style="color:var(--stop);">no email on file for this customer</span>`;
     return `
       <strong>${label}:</strong> ${result.action} via ${result.tool_name}
       <div style="margin-top:8px; padding:10px 12px; background:var(--panel-2); border-radius:6px; border-left:3px solid var(--accent);">
         <div style="font-size:10px; color:var(--risk); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">
           Drafted, not sent — no ${r.channel || ""} provider connected in this demo
         </div>
+        <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">To: ${toLine}</div>
         <div style="font-weight:700; margin-bottom:4px;">${r.subject || ""}</div>
         <div style="font-size:12.5px; color:var(--text-dim); white-space:pre-line;">${r.body || ""}</div>
       </div>`;

@@ -40,7 +40,14 @@ class ToolResult:
     success: bool
 
 
-def execute_tool(action: str, invoice_id: str, invoice_number: str, amount_paise: int) -> ToolResult:
+def execute_tool(
+    action: str,
+    invoice_id: str,
+    invoice_number: str,
+    amount_paise: int,
+    customer_name: str | None = None,
+    customer_email: str | None = None,
+) -> ToolResult:
     """`action` is a plain string, not ActionKey, because a policy
     substitution can target a policy-outcome terminal (route_to_dispute,
     request_human_approval, stop) that ActionKey deliberately excludes —
@@ -85,13 +92,22 @@ def execute_tool(action: str, invoice_id: str, invoice_number: str, amount_paise
         ActionKey.escalate_to_am,
     }
     if action in {a.value for a in _MESSAGE_ACTIONS}:
-        message = render_message(ActionKey(action), invoice_number, amount_paise)
+        message = render_message(
+            ActionKey(action), invoice_number, amount_paise, customer_name, customer_email
+        )
         return ToolResult(
             tool_name=f"template.{action}",
-            request={"invoice_number": invoice_number, "amount_paise": amount_paise},
+            request={
+                "invoice_number": invoice_number,
+                "amount_paise": amount_paise,
+                "customer_name": customer_name,
+                "customer_email": customer_email,
+            },
             response={
                 "delivered": False,
                 "channel": message["channel"],
+                "to": message["to"],
+                "to_name": message["to_name"],
                 "subject": message["subject"],
                 "body": message["body"],
                 "note": "Drafted and recorded — no email/SMS/voice provider connected in this demo.",

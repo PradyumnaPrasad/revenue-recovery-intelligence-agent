@@ -110,7 +110,7 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **158/158 tests pass**, and 13 real defects (F1-F13 in `plan.md` §1.1)
+- **162/162 tests pass**, and 14 real defects (F1-F14 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including two that would have
   produced financially or diagnostically wrong behaviour in production.
@@ -119,7 +119,10 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   judge demo itself, clicking through the dashboard rather than reading
   the CSS; F13 was reported directly by a user clicking "Execute" and
   seeing no visible proof anything happened — the dashboard was silently
-  wiping its own execution result before it could render.
+  wiping its own execution result before it could render; F14 followed
+  immediately when the same user noticed the drafted messages F13
+  introduced had no recipient at all, despite real customer name/email
+  already sitting in the DB.
 
 ## Deliberately not used
 

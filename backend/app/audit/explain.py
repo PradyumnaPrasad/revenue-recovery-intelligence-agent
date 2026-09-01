@@ -141,7 +141,8 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
         if response.get("short_url"):
             return base + f" Real payment link: {response['short_url']}"
         if response.get("subject"):
-            return base + f" Drafted (not sent): \"{response['subject']}\""
+            to = response.get("to") or "no email on file"
+            return base + f" Drafted for {to} (not sent): \"{response['subject']}\""
         return base
     if kind == "action_failed":
         action = payload.get("action", "an action")

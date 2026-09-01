@@ -37,6 +37,26 @@ def test_message_actions_draft_real_content_not_a_bare_flag():
         assert result.response["body"]  # non-empty real content, not a stub
 
 
+def test_customer_name_and_email_reach_the_drafted_message():
+    # Found live: execute_tool never received customer_name/customer_email
+    # at all, so every drafted message had no recipient -- an
+    # invoice-recovery email addressed to nobody isn't credible proof of
+    # anything on a demo screen.
+    result = execute_tool(
+        "send_reminder", "inv-1", "INV-1000", 500_000_00,
+        customer_name="Acme Textiles Pvt Ltd", customer_email="ap@acmetextiles.example",
+    )
+    assert result.response["to"] == "ap@acmetextiles.example"
+    assert result.response["to_name"] == "Acme Textiles Pvt Ltd"
+    assert "Acme Textiles Pvt Ltd" in result.response["body"]
+
+
+def test_missing_customer_is_shown_honestly_not_silently():
+    result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00)
+    assert result.response["to"] is None
+    assert result.response["to_name"] is None
+
+
 def test_policy_outcome_terminals_are_recorded_not_drafted():
     # route_to_dispute etc. are internal queue entries, not customer-facing
     # messages — nothing to draft, unlike the actions above.

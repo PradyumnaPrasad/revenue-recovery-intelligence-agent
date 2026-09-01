@@ -35,6 +35,29 @@ def test_amount_is_rendered_with_indian_grouping_in_body():
     assert "₹1,23,456" in msg["body"]
 
 
+def test_real_customer_name_and_email_appear_in_the_message():
+    # Found live: every drafted message had NO recipient at all, even
+    # though Customer.name/.email are real generated fields already
+    # sitting in the DB -- an invoice-recovery email addressed to nobody
+    # is not credible proof of anything on a demo screen.
+    msg = render_message(
+        ActionKey.send_reminder, "INV-2000", 123_456_00,
+        customer_name="Acme Textiles Pvt Ltd", customer_email="ap@acmetextiles.example",
+    )
+    assert msg["to"] == "ap@acmetextiles.example"
+    assert msg["to_name"] == "Acme Textiles Pvt Ltd"
+    assert "Acme Textiles Pvt Ltd" in msg["body"]
+
+
+def test_missing_customer_falls_back_honestly_not_silently():
+    msg = render_message(ActionKey.send_reminder, "INV-2000", 123_456_00)
+    assert msg["to"] is None
+    assert msg["to_name"] is None
+    # Still a coherent, readable message -- a missing customer record
+    # shouldn't produce a broken "Hi None," greeting.
+    assert "None" not in msg["body"]
+
+
 def test_no_template_for_a_non_message_action_raises():
     # route_to_dispute is a policy-outcome terminal, never a real ActionKey
     # member, so it can't reach this function via app.tools.registry at

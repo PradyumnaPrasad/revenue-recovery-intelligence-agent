@@ -191,7 +191,7 @@ each.]**
   Live and slightly risky reads as real; a screenshot of a green checkmark
   reads as staged. You've verified both work — trust the live system.
 - **Numbers to have pulled up and re-verified same-day before recording:**
-  90.6% intent accuracy, 158/158 tests, INV-1012's diagnosis/policy/ROI
+  90.6% intent accuracy, 162/162 tests, INV-1012's diagnosis/policy/ROI
   numbers (₹6,22,858, cash_flow_risk, requires approval over ₹5L), the
   bootstrap CI on the recovery curve, and the Portfolio ROI card's three
   numbers (they must literally subtract correctly on screen — verify with
