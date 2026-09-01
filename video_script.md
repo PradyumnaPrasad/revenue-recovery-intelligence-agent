@@ -40,23 +40,34 @@ Model → Policy → Tools]**
 
 ## 0:50–1:45 — One invoice, end to end (55s)
 
-**[On screen: Command Center dashboard, live. Click an invoice — pick a
-real ₹2.5L / ~45-days-overdue one from the queue.]**
+**[On screen: Command Center dashboard, live. Click INV-1012 — ₹6,22,858,
+29 days overdue, batch `fc1fa32f-7dd5-53fd-b02a-3b3c8493599b`. Scroll to
+show both the "Baseline vs. this system" card and the ranked-actions
+table.]**
 
-> "Here's one real invoice from our seeded portfolio. ₹2.5 lakh, 45 days
+> "Here's one real invoice from our seeded portfolio. ₹6.2 lakh, 29 days
 > overdue. The system diagnoses it first — not a black box, an evidence
-> trail: broken promises, contact history, payment channel status — and
-> lands on a specific diagnosis, not just 'overdue.'
+> trail: this customer has a 16% prior late-payment rate and three broken
+> promises before — cash-flow risk, not just 'overdue.'
 >
-> Then it ranks every available action by risk-adjusted expected value —
-> cost of the action, probability it recovers the money, how long that
-> takes, discounted for time. Watch this one: the highest expected-value
-> action here is actually a hard escalation to an account manager. But our
-> policy engine gates it — [click to show the gate/reason] — because this
-> customer already has an open promise-to-pay that hasn't come due yet.
-> Contacting them again right now would just be noise. That's the policy
-> layer doing its job: overriding the 'optimal' answer because it knows
-> something the ranking model doesn't."
+> Then it ranks every available action by risk-adjusted expected value, and
+> the top choice is escalating straight to an account manager. Now watch
+> this card — [point at the 'Baseline vs. this system' card, which reads
+> DIVERGES] — a fixed, diagnosis-blind cadence would just resend the
+> payment link at 29 days, the same thing it does for every invoice. Our
+> system wants to escalate instead. But before that happens — [point at the
+> policy card] — the policy engine steps in: this invoice is over our
+> ₹5 lakh threshold, so escalation doesn't fire automatically. It goes to a
+> human for approval first. That's two layers doing their job in one
+> screen: the ranking model disagreeing with a naive script, and governance
+> disagreeing with the ranking model."
+
+**[Backup invoice if you want a second, sharper contrast:
+INV-1001 — ₹1,22,223, 37 days overdue — where a fixed cadence would
+escalate to an account manager, but this system BLOCKS entirely because
+the customer already has an open promise-to-pay. That's an even cleaner
+"the naive system would annoy someone who already said yes" story if you
+have time for two invoices instead of one.]**
 
 ---
 
@@ -119,17 +130,26 @@ DEGRADED banner appear on the dashboard within a few seconds.]**
 
 ## 3:55–4:35 — The measurement (40s)
 
-**[On screen: recovery curve chart, three arms. Then click into the audit
-chain and tamper a row live to show the hash break.]**
+**[On screen: three-arm bar chart, then scroll to the "Portfolio ROI" card
+just below it. Then click into the audit chain and tamper a row live to
+show the hash break.]**
 
 > "Here's the number that actually matters: we don't just measure recovery
 > rate, because that number is meaningless on its own — some invoices
 > would've paid themselves with zero contact. So we run three arms:
 > our agent, a fixed baseline cadence, and a true no-contact holdout.
-> [point at curve] This gap, right here, is the actual incremental
+> [point at bars] This gap, right here, is the actual incremental
 > recovery our agent adds — with a bootstrap confidence interval, not a
-> single lucky run. And every decision behind that curve is hash-chained —
-> watch what happens if I tamper with one row after the fact. [tamper it]
+> single lucky run.
+>
+> But recovering more doesn't mean much if it costs more than it recovers
+> — so here's the one number we'd want you to remember. [point at the ROI
+> card] Incremental recovery over the holdout, minus the actual cost of
+> every action we took to get it, still nets out to real money — not just
+> 'we recover more,' but 'we recover more than it costs us to try.'
+>
+> And every decision behind these numbers is hash-chained — watch what
+> happens if I tamper with one row after the fact. [tamper it]
 > Verification immediately flags it: not intact. You can't quietly edit
 > the record of what the agent did."
 
@@ -167,10 +187,20 @@ each.]**
   Live and slightly risky reads as real; a screenshot of a green checkmark
   reads as staged. You've verified both work — trust the live system.
 - **Numbers to have pulled up and re-verified same-day before recording:**
-  90.6% intent accuracy, 145/145 tests, the specific invoice ID and amounts
-  you'll click through, the bootstrap CI on the recovery curve. If any of
-  these drifted since the last full run, re-run `app.evaluation.report`
-  and the spot-check before you hit record — don't recite a stale number.
+  90.6% intent accuracy, 150/150 tests, INV-1012's diagnosis/policy/ROI
+  numbers (₹6,22,858, cash_flow_risk, requires approval over ₹5L), the
+  bootstrap CI on the recovery curve, and the Portfolio ROI card's three
+  numbers (they must literally subtract correctly on screen — verify with
+  `curl "localhost:8000/evaluation/summary?seed=42&size=300"` right before
+  recording). If any of these drifted since the last full run, re-run
+  `app.evaluation.report` and the spot-check before you hit record — don't
+  recite a stale number.
+- **INV-1012's batch is the standard seed-42/size-500 batch** (batch_id
+  `fc1fa32f-7dd5-53fd-b02a-3b3c8493599b` on this build — re-confirm via
+  `GET /batches` same-day, since a fresh `docker compose up` reseeds a new
+  batch_id even with the same seed/size). If INV-1012 isn't at the queue
+  position you expect, use `POST /invoices/{id}/evaluate` to find it by
+  invoice_number, or fall back to INV-1001 (the promise-to-pay block case).
 - **The last 25 seconds is the highest-leverage part of the video.** Most
   submissions end on their best number; ending on the limits of your own
   claim plus evidence you stress-tested it is what a technical panel
