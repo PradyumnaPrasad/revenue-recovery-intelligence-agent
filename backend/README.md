@@ -110,10 +110,12 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **145/145 tests pass**, and 10 real defects (F1-F10 in `plan.md` §1.1)
+- **145/145 tests pass**, and 11 real defects (F1-F11 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including two that would have
   produced financially or diagnostically wrong behaviour in production.
+  The eleventh (F11) was found by a genuine cold-clone check: a fresh
+  `git clone` into an isolated Docker environment, from zero.
 
 ## Deliberately not used
 
