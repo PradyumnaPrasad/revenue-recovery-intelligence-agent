@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from app.domain.types import ActionKey
 from app.tools.razorpay_client import RazorpayError, create_payment_link
+from app.tools.templates import render_message
 
 _razorpay_down = False
 
@@ -67,19 +68,40 @@ def execute_tool(action: str, invoice_id: str, invoice_number: str, amount_paise
                 success=False,
             )
 
-    if action == ActionKey.send_reminder.value:
+    # Actions with a real customer- or AM-facing message — plan.md's cut
+    # ladder ("LLM message generation -> Jinja templates"). Found live
+    # while rehearsing the demo: before this, every one of these returned
+    # a bare {"recorded": true} with no visible content, so clicking
+    # "execute" produced nothing a viewer could actually see or judge —
+    # honest about not sending anything for real, but unconvincing on
+    # screen. render_message() returns the exact content that WOULD go
+    # out over that channel; no SMTP/SMS/voice provider is wired up here
+    # (see backend/README.md's "Known, honest gaps"), so this is drafted
+    # and recorded, explicitly not delivered.
+    _MESSAGE_ACTIONS = {
+        ActionKey.send_reminder,
+        ActionKey.offer_payment_plan,
+        ActionKey.schedule_call,
+        ActionKey.escalate_to_am,
+    }
+    if action in {a.value for a in _MESSAGE_ACTIONS}:
+        message = render_message(ActionKey(action), invoice_number, amount_paise)
         return ToolResult(
-            tool_name="console.send_reminder",
-            request={"invoice_number": invoice_number},
-            response={"sent": True, "channel": "console"},
+            tool_name=f"template.{action}",
+            request={"invoice_number": invoice_number, "amount_paise": amount_paise},
+            response={
+                "delivered": False,
+                "channel": message["channel"],
+                "subject": message["subject"],
+                "body": message["body"],
+                "note": "Drafted and recorded — no email/SMS/voice provider connected in this demo.",
+            },
             success=True,
         )
 
-    # Everything else (schedule_call, offer_payment_plan, escalate_to_am,
-    # route_to_dispute, request_human_approval, stop) is an internal record
-    # — a queue entry, not an external call. One handler covers all of
-    # them because the "tool" is genuinely the same shape: write a fact,
-    # no external side effect.
+    # Policy-outcome terminals (route_to_dispute, request_human_approval,
+    # stop) are genuinely internal — a queue entry, not a customer-facing
+    # message, so there's nothing to draft.
     return ToolResult(
         tool_name=f"internal.{action}",
         request={"invoice_number": invoice_number, "amount_paise": amount_paise},

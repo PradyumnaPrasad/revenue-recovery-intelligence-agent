@@ -102,13 +102,17 @@ most time, per the track brief's own guidance on LLM-orchestration demos.]**
 
 ## 3:00–3:25 — Real execution (25s)
 
-**[On screen: split — your app on one side, actual Razorpay test-mode
-dashboard on the other.]**
+**[On screen: click "Execute recommended action" on an invoice whose
+recommendation is a real Razorpay action (send_upi_payment_link or
+resend_payment_link) — the app itself now shows the returned link, no
+need to tab away.]**
 
 > "This isn't a mockup. When the system decides to send a payment link, it
-> calls the real Razorpay API in test mode — [show the plink_... ID] — and
+> calls the real Razorpay API in test mode — [point at the clickable link
+> that appears right in the app] — and this URL is real, live, right now.
+> [click it, briefly show the actual Razorpay checkout page loading] And
 > when that invoice gets paid, a real HMAC-verified webhook closes the
-> loop back in our system automatically. And every action is idempotent —
+> loop back in our system automatically. Every action is idempotent —
 > call the same action twice by accident, you get the same result once,
 > not a duplicate charge link."
 
@@ -187,7 +191,7 @@ each.]**
   Live and slightly risky reads as real; a screenshot of a green checkmark
   reads as staged. You've verified both work — trust the live system.
 - **Numbers to have pulled up and re-verified same-day before recording:**
-  90.6% intent accuracy, 150/150 tests, INV-1012's diagnosis/policy/ROI
+  90.6% intent accuracy, 158/158 tests, INV-1012's diagnosis/policy/ROI
   numbers (₹6,22,858, cash_flow_risk, requires approval over ₹5L), the
   bootstrap CI on the recovery curve, and the Portfolio ROI card's three
   numbers (they must literally subtract correctly on screen — verify with

@@ -13,18 +13,37 @@ def teardown_function():
     set_razorpay_down(False)
 
 
-def test_send_reminder_uses_console_sink():
+def test_send_reminder_drafts_a_real_message():
+    # Found live during a demo rehearsal: before render_message() existed,
+    # every non-Razorpay action returned a bare {"recorded": True} with no
+    # visible content, so clicking "execute" on the dashboard produced
+    # nothing a viewer could actually see.
     result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00)
     assert result.success is True
-    assert result.tool_name == "console.send_reminder"
+    assert result.tool_name == "template.send_reminder"
+    assert result.response["delivered"] is False
+    assert result.response["channel"] == "email"
+    assert "INV-1000" in result.response["subject"]
+    assert "₹5,00,000" in result.response["body"]
 
 
-def test_internal_actions_are_recorded_not_called_externally():
-    for action in ("schedule_call", "offer_payment_plan", "escalate_to_am", "route_to_dispute"):
+def test_message_actions_draft_real_content_not_a_bare_flag():
+    for action in ("schedule_call", "offer_payment_plan", "escalate_to_am"):
         result = execute_tool(action, "inv-1", "INV-1000", 500_000_00)
         assert result.success is True
-        assert result.tool_name == f"internal.{action}"
-        assert result.response == {"recorded": True}
+        assert result.tool_name == f"template.{action}"
+        assert result.response["delivered"] is False
+        assert "INV-1000" in result.response["subject"]
+        assert result.response["body"]  # non-empty real content, not a stub
+
+
+def test_policy_outcome_terminals_are_recorded_not_drafted():
+    # route_to_dispute etc. are internal queue entries, not customer-facing
+    # messages — nothing to draft, unlike the actions above.
+    result = execute_tool("route_to_dispute", "inv-1", "INV-1000", 500_000_00)
+    assert result.success is True
+    assert result.tool_name == "internal.route_to_dispute"
+    assert result.response == {"recorded": True}
 
 
 def test_razorpay_chaos_switch_degrades_gracefully():

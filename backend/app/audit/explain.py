@@ -136,7 +136,13 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
     if kind == "action_executed":
         action = payload.get("action", "an action")
         tool = payload.get("tool_name")
-        return f"Executed '{action}'" + (f" via {tool}." if tool else ".")
+        response = payload.get("response") or {}
+        base = f"Executed '{action}'" + (f" via {tool}." if tool else ".")
+        if response.get("short_url"):
+            return base + f" Real payment link: {response['short_url']}"
+        if response.get("subject"):
+            return base + f" Drafted (not sent): \"{response['subject']}\""
+        return base
     if kind == "action_failed":
         action = payload.get("action", "an action")
         return f"Attempted '{action}' — failed, no charge or message was sent."

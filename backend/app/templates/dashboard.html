@@ -179,6 +179,16 @@
 const API = "";
 let currentBatchId = null;
 let currentInvoiceId = null;
+// Persists the proof-of-execution card (real Razorpay link / drafted
+// message) across the automatic re-evaluate that follows every execute.
+// Found live during a demo rehearsal: renderDetail() rebuilds the whole
+// #detail pane from scratch, including a fresh empty #act-result div, so
+// the result of clicking "Execute" was being wiped before it was ever
+// visible -- the exact thing that looked like "nothing happened, just a
+// strikethrough." Keyed to the invoice so switching to a different
+// invoice doesn't show a stale result.
+let lastActResultHtml = null;
+let lastActResultInvoiceId = null;
 
 function fmtRupees(paise) {
   return "₹" + Math.round(paise / 100).toLocaleString("en-IN");
@@ -266,6 +276,48 @@ async function selectInvoice(id, rowEl) {
   renderDetail(evalResult, invoice, auditEvents, verify);
 }
 
+function renderActResult(result) {
+  const label = result.idempotent_replay ? "Already executed (idempotent replay)" : "Executed";
+  const r = result.response || {};
+
+  // Real Razorpay call: show the actual returned link, clickable — this
+  // is the one artifact in the whole demo that lives outside our own
+  // database. Found live during a demo rehearsal that the dashboard
+  // called /act successfully but never surfaced this URL anywhere, so a
+  // judge watching would never see proof the call was real.
+  if (r.short_url) {
+    return `
+      <strong>${label}:</strong> ${result.action} via ${result.tool_name}
+      <div style="margin-top:8px; padding:10px 12px; background:var(--money-bg); border-radius:6px;">
+        <div style="font-size:10px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:4px;">Real Razorpay test-mode payment link</div>
+        <a href="${r.short_url}" target="_blank" rel="noopener" style="color:var(--money); font-weight:700; word-break:break-all;">${r.short_url}</a>
+        <div style="font-size:11px; color:var(--text-dim); margin-top:4px;">id: ${r.id || "—"} · status: ${r.status || "—"}</div>
+      </div>`;
+  }
+
+  // Template-drafted message (send_reminder, offer_payment_plan,
+  // schedule_call, escalate_to_am): show the actual content, and say
+  // plainly that it's drafted, not delivered — no SMTP/SMS/voice provider
+  // is connected in this build.
+  if (r.subject || r.body) {
+    return `
+      <strong>${label}:</strong> ${result.action} via ${result.tool_name}
+      <div style="margin-top:8px; padding:10px 12px; background:var(--panel-2); border-radius:6px; border-left:3px solid var(--accent);">
+        <div style="font-size:10px; color:var(--risk); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">
+          Drafted, not sent — no ${r.channel || ""} provider connected in this demo
+        </div>
+        <div style="font-weight:700; margin-bottom:4px;">${r.subject || ""}</div>
+        <div style="font-size:12.5px; color:var(--text-dim); white-space:pre-line;">${r.body || ""}</div>
+      </div>`;
+  }
+
+  // Policy-outcome terminals (route_to_dispute, request_human_approval,
+  // stop) or a failed call: nothing to draft, nothing external — an
+  // honest internal record, shown as exactly that.
+  return `<strong>${label}:</strong> ${result.action} via ${result.tool_name}
+    <div style="margin-top:6px; font-size:12px; color:var(--text-dim);">Internal record only — ${JSON.stringify(r)}</div>`;
+}
+
 function renderDetail(ev, invoice, auditEvents, verify) {
   const detail = document.getElementById("detail");
 
@@ -347,7 +399,7 @@ function renderDetail(ev, invoice, auditEvents, verify) {
         <button id="act-btn" ${canAct ? "" : "disabled style='opacity:0.4;cursor:not-allowed;'"}>Execute recommended action</button>
         <button class="secondary" onclick="selectInvoice('${currentInvoiceId}')">Re-evaluate</button>
       </div>
-      <div id="act-result" style="margin-top:10px; font-size:12.5px; color:var(--text-dim);"></div>
+      <div id="act-result" style="margin-top:10px; font-size:12.5px; color:var(--text-dim);">${lastActResultInvoiceId === currentInvoiceId && lastActResultHtml ? lastActResultHtml : ""}</div>
     </div>
 
     <div class="card">
@@ -363,10 +415,16 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       actBtn.disabled = true;
       actBtn.textContent = "Executing…";
       const result = await fetch(`${API}/invoices/${currentInvoiceId}/act`, { method: "POST" }).then(r => r.json());
-      document.getElementById("act-result").innerHTML =
-        `<strong>${result.idempotent_replay ? "Already executed (idempotent replay)" : "Executed"}:</strong> ${result.action} via ${result.tool_name}`;
+      lastActResultHtml = renderActResult(result);
+      lastActResultInvoiceId = currentInvoiceId;
+      document.getElementById("act-result").innerHTML = lastActResultHtml;
       actBtn.textContent = "Execute recommended action";
       actBtn.disabled = false;
+      // Re-evaluate so the ranked-actions/policy cards reflect the ladder
+      // now that this action is in the invoice's real history — but the
+      // act-result div above is repopulated from lastActResultHtml (see
+      // renderDetail), so the proof of what just executed survives this
+      // refresh instead of flashing and vanishing.
       selectInvoice(currentInvoiceId);
     });
   }

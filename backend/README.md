@@ -110,14 +110,16 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **150/150 tests pass**, and 12 real defects (F1-F12 in `plan.md` §1.1)
+- **158/158 tests pass**, and 13 real defects (F1-F13 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including two that would have
   produced financially or diagnostically wrong behaviour in production.
   F11 was found by a genuine cold-clone check (a fresh `git clone` into an
   isolated Docker environment, from zero); F12 was found by rehearsing the
   judge demo itself, clicking through the dashboard rather than reading
-  the CSS.
+  the CSS; F13 was reported directly by a user clicking "Execute" and
+  seeing no visible proof anything happened — the dashboard was silently
+  wiping its own execution result before it could render.
 
 ## Deliberately not used
 
