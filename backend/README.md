@@ -110,7 +110,7 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **162/162 tests pass**, and 15 real defects (F1-F15 in `plan.md` §1.1)
+- **162/162 tests pass**, and 16 real defects (F1-F16 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -122,11 +122,12 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   the dashboard was silently wiping its own execution result before it
   could render; F14 followed immediately when the same user noticed the
   drafted messages F13 introduced had no recipient at all, despite real
-  customer name/email already sitting in the DB; F15 — the most serious
-  of the fifteen — was found while proving the Razorpay webhook loop
-  closes end to end with a real test-mode payment: the audit hash chain's
-  tamper-evidence guarantee was silently breakable under this project's
-  frozen demo clock, fixed with a genuine monotonic sequence column.
+  customer name/email already sitting in the DB; F15 and F16 were found
+  while proving the Razorpay webhook loop closes end to end with a real
+  test-mode payment — the webhook arrived but never actually updated the
+  invoice (F15), and fixing that exposed the audit hash chain's
+  tamper-evidence guarantee silently breaking under this project's frozen
+  demo clock (F16), fixed with a genuine monotonic sequence column.
 
 ## Deliberately not used
 
