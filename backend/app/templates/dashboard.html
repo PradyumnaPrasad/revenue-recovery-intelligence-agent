@@ -25,6 +25,18 @@
     margin: 0; background: var(--bg); color: var(--text);
     font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
     font-size: 14px; line-height: 1.5;
+    /* A flex column, not a plain block flow — found live while adding the
+       Portfolio ROI card: .layout's two panes used to independently
+       scroll against a fixed "100vh minus a 56px header" assumption, which
+       was only ever true when .layout was the first thing under the
+       header. Once #eval-chart-section (the three-arm chart + ROI card)
+       started rendering ABOVE .layout, that assumption broke — the panes'
+       internal scroll position and the page's own scroll position fought
+       each other, producing a visible ghosting/overlap while scrolling.
+       flex:1 + min-height:0 on .layout below makes it fill whatever space
+       genuinely remains after the header and eval-chart-section, however
+       tall those turn out to be, so the two never disagree again. */
+    display: flex; flex-direction: column; min-height: 100vh;
   }
   .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
   header {
@@ -47,8 +59,8 @@
     padding: 8px 24px; font-size: 12.5px; font-weight: 600; letter-spacing: 0.02em;
   }
   .degraded-banner.show { display: block; }
-  .layout { display: grid; grid-template-columns: 300px 1fr; min-height: calc(100vh - 56px); }
-  .queue { border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; max-height: calc(100vh - 56px); }
+  .layout { display: grid; grid-template-columns: 300px 1fr; flex: 1 1 auto; min-height: 0; }
+  .queue { border-right: 1px solid var(--border); padding: 16px; overflow-y: auto; }
   .queue h2 { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim); margin: 0 0 10px; }
   .inv-row {
     display: flex; justify-content: space-between; gap: 8px; padding: 9px 10px; border-radius: 6px;
@@ -62,7 +74,7 @@
   .badge.disputed, .badge.blocked { background: var(--stop-bg); color: var(--stop); }
   .badge.require_approval { background: var(--risk-bg); color: var(--risk); }
   .badge.allow, .badge.substitute { background: var(--money-bg); color: var(--money); }
-  .detail { padding: 20px 24px; overflow-y: auto; max-height: calc(100vh - 56px); }
+  .detail { padding: 20px 24px; overflow-y: auto; }
   .placeholder { color: var(--text-dim); padding: 40px; text-align: center; }
   .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
@@ -117,10 +129,10 @@
   /* Counterfactual card */
   .card.diverges { border-color: var(--risk); }
   .cf-row { display: flex; align-items: stretch; gap: 14px; margin-top: 8px; }
-  .cf-col { flex: 1; background: var(--panel-2); border-radius: 6px; padding: 10px 12px; }
+  .cf-col { flex: 1; min-width: 0; background: var(--panel-2); border-radius: 6px; padding: 10px 12px; }
   .cf-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
-  .cf-action { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; }
-  .cf-reason { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; }
+  .cf-action { font-size: 14.5px; font-weight: 700; margin-bottom: 4px; overflow-wrap: break-word; }
+  .cf-reason { font-size: 11.5px; color: var(--text-dim); line-height: 1.4; overflow-wrap: break-word; }
   .cf-arrow { display: flex; align-items: center; font-size: 11px; color: var(--text-dim); font-weight: 700; }
 
   /* Narrated audit trail */
