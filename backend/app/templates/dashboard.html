@@ -19,6 +19,20 @@
     --stop: #e05a4e;
     --stop-bg: #2b1512;
     --accent: #4d8fd6;
+
+    /* A single 8px-based rhythm, applied via these tokens instead of ad
+       hoc pixel values scattered per rule — a polish pass, not a redesign;
+       existing layout dimensions (.layout's 300px column, card padding)
+       are left alone since changing those risks the F12 layout bug
+       recurring this close to the deadline. */
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+
+    /* A named type scale for NUMBERS specifically — the values a viewer's
+       eye should land on first. Everything else (labels, body text)
+       keeps its existing per-rule sizing; this only unifies the numbers
+       that were previously 13/17/18/20/24px in five unrelated rules with
+       no shared logic behind the differences. */
+    --fs-value-sm: 13px; --fs-value-md: 18px; --fs-value-lg: 22px; --fs-value-xl: 30px;
   }
   * { box-sizing: border-box; }
   body {
@@ -47,7 +61,7 @@
   header .title { font-size: 15px; font-weight: 600; letter-spacing: 0.01em; margin-right: auto; }
   .stat { display: flex; flex-direction: column; gap: 2px; }
   .stat .label { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-dim); }
-  .stat .value { font-size: 18px; font-weight: 600; }
+  .stat .value { font-size: var(--fs-value-md); font-weight: 600; }
   .stat .sub { font-size: 11.5px; color: var(--text-dim); }
   .sim-chip {
     display: inline-block; font-size: 9.5px; font-weight: 700; letter-spacing: 0.06em;
@@ -79,19 +93,26 @@
   .card {
     background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
     padding: 16px 18px; margin-bottom: 14px;
+    /* Subtle depth — the flat panel-on-panel background made every card
+       read as the same plane as the page behind it; a soft shadow gives
+       the eye a cue about what's a distinct surface without changing any
+       layout dimensions. */
+    box-shadow: 0 1px 2px rgba(0,0,0,0.25), 0 4px 16px rgba(0,0,0,0.18);
   }
   .card h3 {
     font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-dim);
     margin: 0 0 12px; display: flex; align-items: center; gap: 8px;
   }
-  .diag-code { font-size: 17px; font-weight: 700; }
+  .diag-code { font-size: var(--fs-value-lg); font-weight: 700; }
   .diag-signals { list-style: none; padding: 0; margin: 8px 0 0; color: var(--text-dim); font-size: 12.5px; }
   .diag-signals li:before { content: "— "; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th { text-align: left; font-size: 10px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-dim); padding: 4px 8px 6px 0; }
   td { padding: 6px 8px 6px 0; border-top: 1px solid var(--border); }
   tr.gated td { opacity: 0.45; text-decoration: line-through; }
-  tr.chosen td { color: var(--money); font-weight: 600; }
+  tr.chosen td { color: var(--money); font-weight: 600; background: var(--money-bg); }
+  tr.chosen td:first-child { border-left: 3px solid var(--money); }
+  tr.chosen td:last-child { border-right: 1px solid var(--money-bg); }
   .policy-outcome {
     display: inline-block; padding: 3px 9px; border-radius: 5px; font-weight: 700;
     font-size: 12px; letter-spacing: 0.02em; text-transform: uppercase;
@@ -105,9 +126,11 @@
   .actions-row { margin-top: 14px; display: flex; gap: 10px; }
   button {
     background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px;
-    font-size: 13px; font-weight: 600; cursor: pointer;
+    font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.12s, transform 0.08s;
   }
   button:hover { opacity: 0.9; }
+  button:active { transform: scale(0.98); }
+  button:disabled { cursor: not-allowed; }
   button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
   .audit-dots { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
   .audit-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); }
@@ -118,16 +141,16 @@
   .bar-col { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; }
   .bar-track { width: 44px; height: 100px; display: flex; align-items: flex-end; position: relative; }
   .bar { width: 100%; border-radius: 3px 3px 0 0; }
-  .bar-col .pct { font-size: 13px; font-weight: 700; }
+  .bar-col .pct { font-size: var(--fs-value-sm); font-weight: 700; }
   .bar-col .name { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
   .ci-whisker { position: absolute; left: 50%; width: 1px; background: rgba(255,255,255,0.35); transform: translateX(-50%); }
   .headline-figs { display: flex; gap: 28px; margin-top: 14px; flex-wrap: wrap; }
-  .headline-figs .fig .value { font-size: 20px; font-weight: 700; }
+  .headline-figs .fig .value { font-size: var(--fs-value-lg); font-weight: 700; }
   .headline-figs .fig .value.money { color: var(--money); }
   .headline-figs .fig .label { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
 
   /* Counterfactual card */
-  .card.diverges { border-color: var(--risk); }
+  .card.diverges { border-color: var(--risk); background: linear-gradient(180deg, var(--risk-bg) 0%, var(--panel) 22%); }
   .cf-row { display: flex; align-items: stretch; gap: 14px; margin-top: 8px; }
   .cf-col { flex: 1; min-width: 0; background: var(--panel-2); border-radius: 6px; padding: 10px 12px; }
   .cf-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
@@ -140,14 +163,18 @@
   .audit-narrative li { font-size: 12.5px; border-left: 2px solid var(--accent); padding: 2px 0 2px 10px; }
   .audit-time { color: var(--text-dim); font-size: 11px; margin-right: 6px; }
 
-  /* Portfolio ROI card */
+  /* Portfolio ROI card — "the one number, not the chart" gets the
+     largest, brightest treatment in the whole dashboard on purpose;
+     everything else here uses the shared value scale. */
   .roi-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
   .roi-step { text-align: center; }
-  .roi-value { font-size: 18px; font-weight: 700; }
+  .roi-value { font-size: var(--fs-value-md); font-weight: 700; }
   .roi-value.money { color: var(--money); }
   .roi-label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.03em; max-width: 150px; margin-top: 2px; }
-  .roi-op { font-size: 18px; color: var(--text-dim); font-weight: 700; }
-  .roi-final .roi-value { font-size: 24px; }
+  .roi-op { font-size: var(--fs-value-md); color: var(--text-dim); font-weight: 700; }
+  .roi-final { background: var(--money-bg); border-radius: 8px; padding: 10px 18px; }
+  .roi-final .roi-value { font-size: var(--fs-value-xl); }
+  .roi-final .roi-label { color: var(--money); opacity: 0.85; }
 </style>
 </head>
 <body>
