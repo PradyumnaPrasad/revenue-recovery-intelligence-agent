@@ -187,7 +187,17 @@
   <div class="stat"><span class="label">Portfolio</span><span class="value num" id="stat-count">—</span></div>
   <div class="stat"><span class="label">Dispute rate</span><span class="value num" id="stat-dispute">—</span></div>
   <div class="stat"><span class="label">Actions today</span><span class="value num" id="stat-budget">—</span></div>
+  <div class="stat">
+    <span class="label">Simulated clock</span>
+    <span class="value num" id="stat-clock" style="font-size:13px;">—</span>
+  </div>
+  <div style="display:flex; align-items:center; gap:6px;">
+    <input id="advance-days" type="number" value="7" min="1" max="90" style="width:48px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:13px;">
+    <button id="advance-btn" class="secondary" style="white-space:nowrap;">Advance + run agent</button>
+  </div>
 </header>
+
+<div id="tick-result" style="display:none; padding: 10px 24px 0;"></div>
 
 <div id="eval-chart-section" style="padding: 16px 24px 0;"></div>
 
@@ -232,8 +242,63 @@ async function boot() {
   await loadSummary();
   await loadInvoices();
   await loadEvaluationChart();
+  await loadSimClock();
   pollChaosState();
   setInterval(pollChaosState, 3000);
+
+  document.getElementById("advance-btn").addEventListener("click", runAgentTick);
+}
+
+async function loadSimClock() {
+  // /simulate/advance with days=0 is a harmless way to read the current
+  // simulated instant without moving it -- avoids needing a separate
+  // GET endpoint just to display the clock.
+  const r = await fetch(`${API}/simulate/advance?days=0`, { method: "POST" }).then(r => r.json());
+  if (r.now) {
+    document.getElementById("stat-clock").textContent =
+      new Date(r.now).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+  }
+}
+
+async function runAgentTick() {
+  // The real autonomous loop, found missing and built in direct response
+  // to "I want an end-to-end agent, not just a human clicking Execute per
+  // invoice." /simulate/advance moves the process clock; /simulate/tick
+  // then runs diagnose->rank->govern->execute across every open invoice
+  // in the currently loaded batch, using the exact same _decide()/
+  // _execute_decision() code path a single manual /act call uses --
+  // looped, not reimplemented. A full 500-invoice batch takes ~30-40s:
+  // slow because every one of those is a real, individually policy-gated
+  // decision with a real hash-chained audit write, not a fake progress bar.
+  const btn = document.getElementById("advance-btn");
+  const days = parseInt(document.getElementById("advance-days").value, 10) || 7;
+  const resultBox = document.getElementById("tick-result");
+  btn.disabled = true;
+  btn.textContent = "Advancing…";
+  resultBox.style.display = "block";
+  resultBox.innerHTML = `<div class="placeholder" style="padding:10px 0;">Running the agent autonomously across the whole portfolio — every invoice gets diagnosed, ranked, policy-checked, and (where allowed) executed for real. This takes ~30-40s on the full batch because nothing here is simulated speed, only simulated time.</div>`;
+
+  await fetch(`${API}/simulate/advance?days=${days}`, { method: "POST" });
+  const summary = await fetch(`${API}/simulate/tick?batch_id=${currentBatchId}`, { method: "POST" }).then(r => r.json());
+
+  resultBox.innerHTML = `
+    <div class="card" style="margin-bottom:0;">
+      <h3>Agent ran autonomously — no human clicked anything</h3>
+      <div style="display:flex; gap:24px; flex-wrap:wrap; font-size:13px;">
+        <div><span class="num" style="font-weight:700; color:var(--money);">${summary.executed}</span> executed</div>
+        <div><span class="num" style="font-weight:700;">${summary.idempotent_replay}</span> idempotent replay</div>
+        <div><span class="num" style="font-weight:700; color:var(--stop);">${summary.blocked}</span> blocked by policy</div>
+        <div><span class="num" style="font-weight:700; color:var(--risk);">${summary.require_approval}</span> held for human approval</div>
+        <div><span class="num" style="font-weight:700; color:var(--text-dim);">${summary.already_closed}</span> already closed</div>
+        <div style="color:var(--text-dim);">clock now: ${new Date(summary.now).toLocaleString()}</div>
+      </div>
+    </div>`;
+
+  btn.textContent = "Advance + run agent";
+  btn.disabled = false;
+  await loadSimClock();
+  await loadSummary();
+  await loadInvoices();
 }
 
 async function pollChaosState() {

@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from app.api import batches, demo, evaluation, invoices, webhooks
+from app.api import batches, demo, evaluation, invoices, simulate, webhooks
 from app.db.models import Base
 from app.db.session import engine
 
@@ -32,6 +32,7 @@ app.include_router(invoices.router)
 app.include_router(webhooks.router)
 app.include_router(evaluation.router)
 app.include_router(demo.router)
+app.include_router(simulate.router)
 
 
 @app.get("/health", tags=["meta"])

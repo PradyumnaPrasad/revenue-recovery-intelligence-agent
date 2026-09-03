@@ -216,37 +216,31 @@ async def evaluate_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depend
     return explanation
 
 
-@router.post("/invoices/{invoice_id}/act")
-async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    """Execute the policy-approved action — plan.md §7/§6.9. Re-runs the
-    same decision as /evaluate (never trusts a client-supplied action —
-    the server decides what "the recommended action" is, every time), then
-    executes it exactly once per idempotency key. Idempotent by
-    construction: a UNIQUE constraint on Action.idempotency_key means a
-    replayed call with the same key returns the ORIGINAL stored result
-    instead of a second real Razorpay call or a second internal record.
-    """
-    from app.deps import get_clock
+async def _execute_decision(session: AsyncSession, invoice: Invoice, decision: _Decision, now, clock) -> dict:
+    """The actual execute step — factored out of `/act` so a real
+    autonomous orchestrator (`/simulate/tick`) can run it across an entire
+    portfolio without a human clicking each invoice, using the EXACT same
+    code path as a single manual `/act` call. No new decision logic here;
+    this is the same function either caller runs, looped or not.
 
-    invoice = await _load_invoice(session, invoice_id)
-    clock = get_clock()
-    now = clock.now()
-    decision = await _decide(session, invoice, now)
+    Never raises — returns `{"outcome": "blocked" | "requires_approval" |
+    "idempotent_replay" | "executed", ...}` so a batch orchestrator can
+    aggregate outcomes across hundreds of invoices without one blocked
+    invoice aborting the whole run. `/act` (below) is what turns
+    "blocked"/"requires_approval" back into an HTTPException, preserving
+    its existing API contract exactly.
+    """
     top, policy_result, customer = decision.top, decision.policy_result, decision.customer
+    invoice_id = invoice.id
 
     if policy_result.outcome == "block":
-        raise HTTPException(
-            status_code=409, detail={"blocked": True, "reasons": [r.reason for r in policy_result.reasons]}
-        )
+        return {"outcome": "blocked", "reasons": [r.reason for r in policy_result.reasons]}
     if policy_result.outcome == "require_approval":
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "requires_approval": True,
-                "action": top.action.value,
-                "reasons": [r.reason for r in policy_result.reasons],
-            },
-        )
+        return {
+            "outcome": "requires_approval",
+            "action": top.action.value,
+            "reasons": [r.reason for r in policy_result.reasons],
+        }
 
     if policy_result.outcome == "substitute":
         sub = policy_result.substituted_action
@@ -273,7 +267,7 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     already_executed = (await session.execute(already_executed_stmt)).scalars().first()
     if already_executed is not None:
         return {
-            "idempotent_replay": True,
+            "outcome": "idempotent_replay",
             "action": already_executed.action_key,
             "state": already_executed.state.value,
             "response": already_executed.response,
@@ -293,7 +287,7 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     existing = (await session.execute(existing_stmt)).scalars().first()
     if existing is not None:
         return {
-            "idempotent_replay": True,
+            "outcome": "idempotent_replay",
             "action": existing.action_key,
             "state": existing.state.value,
             "response": existing.response,
@@ -358,11 +352,46 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     await session.commit()
 
     return {
-        "idempotent_replay": False,
+        "outcome": "executed",
         "action": action_to_execute,
         "state": action_row.state.value,
         "tool_name": tool_result.tool_name,
         "response": tool_result.response,
+    }
+
+
+@router.post("/invoices/{invoice_id}/act")
+async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+    """Execute the policy-approved action — plan.md §7/§6.9. Re-runs the
+    same decision as /evaluate (never trusts a client-supplied action —
+    the server decides what "the recommended action" is, every time), then
+    executes it exactly once per idempotency key. Idempotent by
+    construction: a UNIQUE constraint on Action.idempotency_key means a
+    replayed call with the same key returns the ORIGINAL stored result
+    instead of a second real Razorpay call or a second internal record.
+    """
+    from app.deps import get_clock
+
+    invoice = await _load_invoice(session, invoice_id)
+    clock = get_clock()
+    now = clock.now()
+    decision = await _decide(session, invoice, now)
+    result = await _execute_decision(session, invoice, decision, now, clock)
+
+    if result["outcome"] == "blocked":
+        raise HTTPException(status_code=409, detail={"blocked": True, "reasons": result["reasons"]})
+    if result["outcome"] == "requires_approval":
+        raise HTTPException(
+            status_code=403,
+            detail={"requires_approval": True, "action": result["action"], "reasons": result["reasons"]},
+        )
+
+    return {
+        "idempotent_replay": result["outcome"] == "idempotent_replay",
+        "action": result["action"],
+        "state": result["state"],
+        "tool_name": result.get("tool_name"),
+        "response": result["response"],
     }
 
 

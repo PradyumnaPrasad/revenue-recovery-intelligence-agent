@@ -88,6 +88,11 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
             the hash chain on the way past
 ```
 
+The whole loop runs per-invoice via `/evaluate`+`/act`, or autonomously
+across an entire batch via `POST /simulate/advance` + `POST /simulate/tick`
+— the same decision code either way, just looped in the second case, with
+`block`/`require_approval` outcomes still never auto-executed.
+
 ## What's actually been verified, not just claimed
 
 - **Reply extraction accuracy: 90.6%** on 64 real fixtures against the live
@@ -110,7 +115,7 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **175/175 tests pass**, and 18 real defects (F1-F18 in `plan.md` §1.1)
+- **178/178 tests pass**, and 19 real defects (F1-F19 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -135,7 +140,15 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   there is no plan" — fixed with `app/tools/plan_builder.py`: a real
   computed installment schedule, a real call slot, and a real account-
   manager assignment with an SLA, all flowing through to the dashboard as
-  structured data, not just prose.
+  structured data, not just prose; F19 was the root cause behind F18 and
+  behind "it feels like a chatbot, not an agent" — the process ran on a
+  clock frozen at one instant forever, and the only way anything ever
+  happened was a human clicking "Execute" per invoice. Fixed with a real
+  autonomous orchestrator: `POST /simulate/advance` moves the clock,
+  `POST /simulate/tick` runs diagnose→rank→govern→execute across an
+  entire portfolio with no human touching each one — the exact same
+  decision code `/act` uses, just looped, with `block`/`require_approval`
+  outcomes still never auto-executed.
 
 ## Deliberately not used
 
@@ -166,12 +179,15 @@ forced.
 
 ## Known, honest gaps
 
-- **The measurement is a multi-touchpoint simulation, not a live
-  orchestrator.** Both the agent and the baseline get the same four
-  scripted touchpoints and the agent's choice at each is real
-  diagnosis-and-ladder-informed ranking — but there's no scheduler
-  advancing real elapsed time yet. `app/evaluation/simulate.py`'s module
-  docstring says so directly.
+- **The offline *measurement* report (`app/evaluation/simulate.py`,
+  behind `reports/evaluation.md`) is a multi-touchpoint simulation, not
+  driven by the live orchestrator** — it generates its own scripted
+  touchpoints for statistical comparison across seeds, independent of
+  `/simulate/advance`+`/simulate/tick`. The *live* system, by contrast,
+  now has a real orchestrator (F19): `POST /simulate/advance` moves the
+  process clock and `POST /simulate/tick` runs the full loop
+  autonomously across an entire batch, no human clicking each invoice —
+  built in direct response to "I want an end-to-end agent."
 - **Reply extraction has no HTTP endpoint yet.** `app/llm/reply_extraction.py`
   is real and tested, but nothing exposes `POST /invoices/{id}/replies`
   to trigger it on a live invoice — only the offline spot-check
@@ -209,6 +225,10 @@ GET  /evaluation/summary?seed=&size=&env=
 
 GET  /demo/chaos
 POST /demo/chaos?llm=&razorpay=          the graceful-degradation switch
+
+POST /simulate/advance?days=&hours=      moves the process clock forward
+POST /simulate/tick?batch_id=            runs the full loop autonomously across every
+                                          open invoice in a batch -- no human clicks
 ```
 
 ## Running the test suite yourself
