@@ -110,7 +110,7 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **162/162 tests pass**, and 17 real defects (F1-F17 in `plan.md` §1.1)
+- **175/175 tests pass**, and 18 real defects (F1-F18 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -130,7 +130,12 @@ VERIFY   -> outcome vs. a no-contact holdout; every step already landed in
   demo clock (F16), fixed with a genuine monotonic sequence column; F17
   was a wording fix on demo day — a failed real Razorpay call (this test
   account's amount cap) was mislabeled "Internal record only," confused
-  with a genuinely internal, no-external-call action.
+  with a genuinely internal, no-external-call action; F18 was the sharpest
+  critique of the whole build — "offer_payment_plan drafts an email, but
+  there is no plan" — fixed with `app/tools/plan_builder.py`: a real
+  computed installment schedule, a real call slot, and a real account-
+  manager assignment with an SLA, all flowing through to the dashboard as
+  structured data, not just prose.
 
 ## Deliberately not used
 

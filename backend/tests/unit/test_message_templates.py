@@ -58,6 +58,39 @@ def test_missing_customer_falls_back_honestly_not_silently():
     assert "None" not in msg["body"]
 
 
+def test_offer_payment_plan_includes_a_real_installment_schedule():
+    # Found live, called out directly: "if we click for
+    # offer_payment_plan, there is no plan, just an email drafted."
+    msg = render_message(ActionKey.offer_payment_plan, "INV-2000", 1_000_000)
+    assert "plan" in msg
+    assert len(msg["plan"]) == 3
+    assert "Installment 1" in msg["body"]
+    assert str(msg["plan"][0]["due_date"]) in msg["body"]
+
+
+def test_schedule_call_includes_a_real_slot():
+    msg = render_message(ActionKey.schedule_call, "INV-2000", 1_000_000)
+    assert "scheduled_for" in msg
+    assert "on " in msg["body"]  # "...regarding invoice INV-2000 (...) on <slot>."
+
+
+def test_escalate_to_am_includes_a_real_assignment_and_sla():
+    msg = render_message(ActionKey.escalate_to_am, "INV-2000", 1_000_000)
+    assert "assigned_to" in msg
+    assert "respond_by" in msg
+    assert msg["assigned_to"]["name"] in msg["body"]
+    assert msg["assigned_to"]["email"] in msg["body"]
+
+
+def test_send_reminder_has_no_extra_artifact():
+    # Only the three actions above have a computed artifact -- a plain
+    # reminder genuinely is just a reminder, and shouldn't fabricate one.
+    msg = render_message(ActionKey.send_reminder, "INV-2000", 1_000_000)
+    assert "plan" not in msg
+    assert "scheduled_for" not in msg
+    assert "assigned_to" not in msg
+
+
 def test_no_template_for_a_non_message_action_raises():
     # route_to_dispute is a policy-outcome terminal, never a real ActionKey
     # member, so it can't reach this function via app.tools.registry at

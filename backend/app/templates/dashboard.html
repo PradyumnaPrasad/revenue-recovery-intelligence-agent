@@ -335,6 +335,38 @@ function renderActResult(result) {
     const toLine = r.to
       ? `${r.to_name ? r.to_name + " &lt;" + r.to + "&gt;" : r.to}`
       : `<span style="color:var(--stop);">no email on file for this customer</span>`;
+
+    // The real computed artifact behind the action, rendered as actual
+    // structured UI — not just embedded in the email prose. Found live,
+    // called out directly: "if we click for offer_payment_plan, there is
+    // no plan, just an email drafted." r.plan / r.scheduled_for /
+    // r.assigned_to are real, computed values (see
+    // app/tools/plan_builder.py) — this renders them as a table / a
+    // scheduled-slot callout / an assignment card, so the artifact is
+    // visible as data, not just as a sentence in an email body.
+    let artifactHtml = "";
+    if (r.plan) {
+      const rows = r.plan.map(i => `<tr><td>#${i.installment_no}</td><td class="num">${fmtRupees(i.amount_paise)}</td><td>${i.due_date}</td></tr>`).join("");
+      artifactHtml = `
+        <div style="margin-top:10px; padding-top:10px; border-top:1px solid var(--border);">
+          <div style="font-size:10px; color:var(--money); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">Real computed installment schedule</div>
+          <table><thead><tr><th>#</th><th>Amount</th><th>Due</th></tr></thead><tbody>${rows}</tbody></table>
+        </div>`;
+    } else if (r.scheduled_for) {
+      const dt = new Date(r.scheduled_for);
+      artifactHtml = `
+        <div style="margin-top:10px; padding:8px 10px; background:var(--money-bg); border-radius:6px; display:inline-block;">
+          <span style="color:var(--money); font-weight:700;">📞 ${dt.toLocaleString(undefined, {weekday:"long", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"})}</span>
+        </div>`;
+    } else if (r.assigned_to) {
+      const due = new Date(r.respond_by);
+      artifactHtml = `
+        <div style="margin-top:10px; padding:8px 10px; background:var(--money-bg); border-radius:6px;">
+          <div style="color:var(--money); font-weight:700;">Assigned: ${r.assigned_to.name}</div>
+          <div style="font-size:11px; color:var(--text-dim);">${r.assigned_to.email} · respond by ${due.toLocaleString(undefined, {weekday:"short", month:"short", day:"numeric", hour:"2-digit", minute:"2-digit"})}</div>
+        </div>`;
+    }
+
     return `
       <strong>${label}:</strong> ${result.action} via ${result.tool_name}
       <div style="margin-top:8px; padding:10px 12px; background:var(--panel-2); border-radius:6px; border-left:3px solid var(--accent);">
@@ -344,6 +376,7 @@ function renderActResult(result) {
         <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">To: ${toLine}</div>
         <div style="font-weight:700; margin-bottom:4px;">${r.subject || ""}</div>
         <div style="font-size:12.5px; color:var(--text-dim); white-space:pre-line;">${r.body || ""}</div>
+        ${artifactHtml}
       </div>`;
   }
 

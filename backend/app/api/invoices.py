@@ -311,6 +311,7 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
         invoice.amount_paise,
         customer_name=customer.name if customer else None,
         customer_email=customer.email if customer else None,
+        now=now,
     )
     cost_paise = 0
     if action_to_execute in {a.value for a in ActionKey}:

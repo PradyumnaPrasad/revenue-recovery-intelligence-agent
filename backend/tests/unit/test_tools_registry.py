@@ -57,6 +57,24 @@ def test_missing_customer_is_shown_honestly_not_silently():
     assert result.response["to_name"] is None
 
 
+def test_message_action_artifacts_flow_through_execute_tool():
+    # Found live, called out directly: "if we click for
+    # offer_payment_plan, there is no plan, just an email drafted."
+    # execute_tool's response is what the API and the dashboard actually
+    # see -- the artifact must survive the trip from render_message()
+    # through here, not just exist inside templates.py's own tests.
+    plan_result = execute_tool("offer_payment_plan", "inv-1", "INV-1000", 500_000_00)
+    assert "plan" in plan_result.response
+    assert len(plan_result.response["plan"]) == 3
+
+    call_result = execute_tool("schedule_call", "inv-1", "INV-1000", 500_000_00)
+    assert "scheduled_for" in call_result.response
+
+    escalate_result = execute_tool("escalate_to_am", "inv-1", "INV-1000", 500_000_00)
+    assert "assigned_to" in escalate_result.response
+    assert "respond_by" in escalate_result.response
+
+
 def test_policy_outcome_terminals_are_recorded_not_drafted():
     # route_to_dispute etc. are internal queue entries, not customer-facing
     # messages — nothing to draft, unlike the actions above.

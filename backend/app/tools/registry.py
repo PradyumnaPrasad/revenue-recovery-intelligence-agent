@@ -8,6 +8,7 @@ this same interface with a config flag, not a rewrite.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.domain.types import ActionKey
 from app.tools.razorpay_client import RazorpayError, create_payment_link
@@ -47,6 +48,7 @@ def execute_tool(
     amount_paise: int,
     customer_name: str | None = None,
     customer_email: str | None = None,
+    now: datetime | None = None,
 ) -> ToolResult:
     """`action` is a plain string, not ActionKey, because a policy
     substitution can target a policy-outcome terminal (route_to_dispute,
@@ -93,8 +95,26 @@ def execute_tool(
     }
     if action in {a.value for a in _MESSAGE_ACTIONS}:
         message = render_message(
-            ActionKey(action), invoice_number, amount_paise, customer_name, customer_email
+            ActionKey(action), invoice_number, amount_paise, customer_name, customer_email, now
         )
+        response = {
+            "delivered": False,
+            "channel": message["channel"],
+            "to": message["to"],
+            "to_name": message["to_name"],
+            "subject": message["subject"],
+            "body": message["body"],
+            "note": "Drafted and recorded — no email/SMS/voice provider connected in this demo.",
+        }
+        # The real computed artifact behind the action name — found live,
+        # called out directly: "if we click for offer_payment_plan, there
+        # is no plan, just an email drafted." These keys (plan /
+        # scheduled_for / assigned_to+respond_by) are what turn "we said
+        # we'd do something" into "here is the actual thing," and are
+        # what the dashboard renders as structured UI instead of prose.
+        for key in ("plan", "scheduled_for", "assigned_to", "respond_by"):
+            if key in message:
+                response[key] = message[key]
         return ToolResult(
             tool_name=f"template.{action}",
             request={
@@ -103,15 +123,7 @@ def execute_tool(
                 "customer_name": customer_name,
                 "customer_email": customer_email,
             },
-            response={
-                "delivered": False,
-                "channel": message["channel"],
-                "to": message["to"],
-                "to_name": message["to_name"],
-                "subject": message["subject"],
-                "body": message["body"],
-                "note": "Drafted and recorded — no email/SMS/voice provider connected in this demo.",
-            },
+            response=response,
             success=True,
         )
 

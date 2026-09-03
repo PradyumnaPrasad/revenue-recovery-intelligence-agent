@@ -140,6 +140,15 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
         base = f"Executed '{action}'" + (f" via {tool}." if tool else ".")
         if response.get("short_url"):
             return base + f" Real payment link: {response['short_url']}"
+        if response.get("plan"):
+            n = len(response["plan"])
+            total = sum(i["amount_paise"] for i in response["plan"])
+            return base + f" Real {n}-installment plan drafted, {format_rupees(total)} total."
+        if response.get("scheduled_for"):
+            return base + f" Real call slot: {response['scheduled_for']}."
+        if response.get("assigned_to"):
+            am = response["assigned_to"]["name"]
+            return base + f" Assigned to {am}, respond by {response.get('respond_by')}."
         if response.get("subject"):
             to = response.get("to") or "no email on file"
             return base + f" Drafted for {to} (not sent): \"{response['subject']}\""
