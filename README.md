@@ -47,7 +47,7 @@ make it true in code, not just in a pitch.
 - A three-arm measurement (agent / fixed-cadence baseline / no-contact
   holdout) so the headline number is incremental recovery, not raw
   recovery inflated by customers who'd have paid anyway.
-- 20 real defects found by actually running the system — not by code
+- 22 real defects found by actually running the system — not by code
   review — each documented with root cause and fix in `plan.md`, including
   a silent break in the audit chain's tamper-evidence guarantee found
   while proving a real Razorpay webhook closes the loop end to end, and
@@ -57,7 +57,7 @@ make it true in code, not just in a pitch.
   runs the full loop across an entire portfolio with no human clicking
   each invoice, after feedback the demo "feels like a chatbot, not an
   agent."
-- 179/179 tests passing, confirmed inside a genuine cold-clone check: a
+- 192/192 tests passing, confirmed inside a genuine cold-clone check: a
   fresh `git clone` into an isolated Docker environment, from zero.
 
 Start with [`backend/README.md`](backend/README.md) to run it yourself.

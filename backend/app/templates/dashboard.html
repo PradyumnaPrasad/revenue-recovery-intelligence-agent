@@ -226,6 +226,13 @@ let currentInvoiceId = null;
 // invoice doesn't show a stale result.
 let lastActResultHtml = null;
 let lastActResultInvoiceId = null;
+// Same persistence trick, same reason, for the reply-extraction result --
+// selectInvoice() rebuilds the whole pane on every refresh, including
+// after a reply is extracted (so diagnosis/policy reflect the new
+// dispute_flag/promise/suppression state), which would otherwise wipe
+// this result before it was visible too.
+let lastReplyResultHtml = null;
+let lastReplyResultInvoiceId = null;
 
 function fmtRupees(paise) {
   return "₹" + Math.round(paise / 100).toLocaleString("en-IN");
@@ -432,11 +439,21 @@ function renderActResult(result) {
         </div>`;
     }
 
+    // Real SMTP delivery -- built live in response to "make it real."
+    // r.delivered/r.actually_sent_to only appear when a real send was
+    // attempted and succeeded (see app/tools/registry.py); everything
+    // else in this branch (call/internal channels, or email with no SMTP
+    // configured) stays honestly labeled as drafted-not-sent.
+    const statusLine = r.delivered
+      ? `<span style="color:var(--money);">✅ Really sent via SMTP</span> — redirected to ${r.actually_sent_to} (the customer's own address is fictitious, generated for this demo)`
+      : `Drafted, not sent — ${r.note && r.note.includes("failed") ? r.note : `no ${r.channel || ""} provider connected in this demo`}`;
+    const boxColor = r.delivered ? "var(--money)" : "var(--risk)";
+
     return `
       <strong>${label}:</strong> ${result.action} via ${result.tool_name}
       <div style="margin-top:8px; padding:10px 12px; background:var(--panel-2); border-radius:6px; border-left:3px solid var(--accent);">
-        <div style="font-size:10px; color:var(--risk); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">
-          Drafted, not sent — no ${r.channel || ""} provider connected in this demo
+        <div style="font-size:10px; color:${boxColor}; text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">
+          ${statusLine}
         </div>
         <div style="font-size:11px; color:var(--text-dim); margin-bottom:6px;">To: ${toLine}</div>
         <div style="font-weight:700; margin-bottom:4px;">${r.subject || ""}</div>
@@ -553,6 +570,19 @@ function renderDetail(ev, invoice, auditEvents, verify) {
     </div>
 
     <div class="card">
+      <h3>Customer reply <span style="color:var(--text-dim); font-weight:400;">— real Gemini extraction, live</span></h3>
+      <div style="font-size:11.5px; color:var(--text-dim); margin-bottom:8px;">
+        Paste anything a customer might have replied. This calls the real extraction model — not a fixture — with
+        PII redaction before the call and a verbatim-quote check against hallucination after it.
+      </div>
+      <textarea id="reply-text" placeholder="e.g. 'We can pay by the 15th, our finance team is slow this month.'" style="width:100%; min-height:64px; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 10px; font-size:13px; font-family:inherit; resize:vertical;"></textarea>
+      <div class="actions-row">
+        <button id="reply-btn">Extract reply</button>
+      </div>
+      <div id="reply-result" style="margin-top:10px; font-size:12.5px; color:var(--text-dim);">${lastReplyResultInvoiceId === currentInvoiceId && lastReplyResultHtml ? lastReplyResultHtml : ""}</div>
+    </div>
+
+    <div class="card">
       <h3>Audit timeline ${verifyBadge}</h3>
       <div class="audit-dots">${auditDots || '<span style="color:var(--text-dim);">No events yet.</span>'}</div>
       <ul class="audit-narrative">${auditLines}</ul>
@@ -578,6 +608,64 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       selectInvoice(currentInvoiceId);
     });
   }
+
+  const replyBtn = document.getElementById("reply-btn");
+  if (replyBtn) {
+    replyBtn.addEventListener("click", async () => {
+      const text = document.getElementById("reply-text").value.trim();
+      if (!text) return;
+      const invId = currentInvoiceId;
+      replyBtn.disabled = true;
+      replyBtn.textContent = "Extracting…";
+      const result = await fetch(`${API}/invoices/${invId}/replies`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reply_text: text }),
+      }).then(r => r.json());
+
+      lastReplyResultHtml = renderReplyResult(result);
+      lastReplyResultInvoiceId = invId;
+      document.getElementById("reply-result").innerHTML = lastReplyResultHtml;
+      replyBtn.textContent = "Extract reply";
+      replyBtn.disabled = false;
+      // Re-evaluate so diagnosis/policy reflect any real domain effect
+      // (dispute_flag set, a promise created, the customer suppressed) --
+      // the reply-result div survives this refresh via lastReplyResultHtml
+      // above, the same fix F13 already proved out for act-result.
+      selectInvoice(invId);
+    });
+  }
+}
+
+function renderReplyResult(result) {
+  if (!result.accepted) {
+    return `
+      <div style="padding:10px 12px; background:var(--stop-bg); border-radius:6px; border-left:3px solid var(--stop);">
+        <div style="font-size:10px; color:var(--stop); text-transform:uppercase; letter-spacing:0.04em; margin-bottom:6px;">Rejected — nothing applied</div>
+        <div>${result.reason || "unknown reason"}</div>
+      </div>`;
+  }
+
+  const conf = fmtPct(result.confidence);
+  const confColor = result.confidence >= 0.6 ? "var(--money)" : "var(--risk)";
+  const appliedLines = Object.entries(result.applied || {}).map(([k, v]) => {
+    if (k === "promise_created") return `<li>Real PromiseToPay row created: ${fmtRupees(v.promised_amount_paise)} due ${v.promised_date}</li>`;
+    if (k === "dispute_flag_set") return `<li>Invoice.dispute_flag set to true — next evaluation will route to dispute</li>`;
+    if (k === "customer_suppressed") return `<li>Customer.suppressed set to true — P02 will block all further contact</li>`;
+    return `<li>${k.replace(/_/g, " ")}</li>`;
+  }).join("");
+
+  return `
+    <div style="padding:10px 12px; background:var(--panel-2); border-radius:6px; border-left:3px solid var(--accent);">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <span style="font-weight:700;">${result.intent}</span>
+        <span style="color:${confColor}; font-weight:700;">${conf} confidence</span>
+      </div>
+      <div style="font-size:11.5px; color:var(--text-dim); margin-bottom:6px;">sentiment: ${result.sentiment} · model: ${result.model_used}</div>
+      <div style="font-size:12.5px; font-style:italic; border-left:2px solid var(--border); padding-left:8px; margin-bottom:8px;">"${result.evidence_quote}"</div>
+      ${appliedLines ? `<ul style="margin:0; padding-left:16px; font-size:12px;">${appliedLines}</ul>` : ""}
+      ${result.requires_human_review ? `<div style="margin-top:6px; color:var(--risk); font-size:11.5px;">⚠ Below confidence threshold — held for human review, no automated effect applied.</div>` : ""}
+    </div>`;
 }
 
 async function loadEvaluationChart() {

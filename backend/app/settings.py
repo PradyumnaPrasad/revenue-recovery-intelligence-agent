@@ -23,6 +23,20 @@ class Settings(BaseSettings):
     razorpay_key_secret: str = ""
     razorpay_webhook_secret: str = ""
 
+    # Real SMTP sending, added live in response to "make it real" — every
+    # generated customer email is fictitious (fake domains, nobody there
+    # to receive anything), so every real send is deliberately redirected
+    # to demo_recipient_email (your own inbox) regardless of which
+    # customer the message is nominally for. Never logged or printed —
+    # smtp_password is a Gmail App Password, read only from the process
+    # environment via this Settings object, the same pattern already used
+    # for the Razorpay/Gemini secrets above.
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    demo_recipient_email: str = ""
+
     daily_action_budget: int = 120
 
 

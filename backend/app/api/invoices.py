@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,6 +29,7 @@ from app.domain.policy.engine import load_policy
 from app.domain.policy.types import BatchContext, CustomerContext, DiagnosisContext, InvoiceContext, PolicyContext
 from app.domain.ranking import ActionHistoryEntry, load_action_config, rank_actions
 from app.domain.types import ActionKey, InvoiceFacts
+from app.llm.reply_extraction import extract_reply, should_act_automatically
 from app.ml import priors
 from app.settings import get_settings
 from app.tools.registry import execute_tool
@@ -216,7 +219,9 @@ async def evaluate_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depend
     return explanation
 
 
-async def _execute_decision(session: AsyncSession, invoice: Invoice, decision: _Decision, now, clock) -> dict:
+async def _execute_decision(
+    session: AsyncSession, invoice: Invoice, decision: _Decision, now, clock, deliver: bool = False
+) -> dict:
     """The actual execute step — factored out of `/act` so a real
     autonomous orchestrator (`/simulate/tick`) can run it across an entire
     portfolio without a human clicking each invoice, using the EXACT same
@@ -229,6 +234,11 @@ async def _execute_decision(session: AsyncSession, invoice: Invoice, decision: _
     invoice aborting the whole run. `/act` (below) is what turns
     "blocked"/"requires_approval" back into an HTTPException, preserving
     its existing API contract exactly.
+
+    `deliver` (default False) gates real SMTP sending for email-channel
+    actions — see execute_tool()'s docstring. `/act` passes deliver=True;
+    `/simulate/tick` never does, so an autonomous batch run can't flood a
+    real inbox with hundreds of emails in one call.
     """
     top, policy_result, customer = decision.top, decision.policy_result, decision.customer
     invoice_id = invoice.id
@@ -306,6 +316,7 @@ async def _execute_decision(session: AsyncSession, invoice: Invoice, decision: _
         customer_name=customer.name if customer else None,
         customer_email=customer.email if customer else None,
         now=now,
+        deliver=deliver,
     )
     cost_paise = 0
     if action_to_execute in {a.value for a in ActionKey}:
@@ -376,7 +387,11 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     clock = get_clock()
     now = clock.now()
     decision = await _decide(session, invoice, now)
-    result = await _execute_decision(session, invoice, decision, now, clock)
+    # deliver=True — a human explicitly clicked Execute on this one
+    # invoice, right now, so a real send is appropriate. /simulate/tick's
+    # call to _execute_decision() omits this, staying drafted-not-sent by
+    # default so an autonomous batch run never floods a real inbox.
+    result = await _execute_decision(session, invoice, decision, now, clock, deliver=True)
 
     if result["outcome"] == "blocked":
         raise HTTPException(status_code=409, detail={"blocked": True, "reasons": result["reasons"]})
@@ -426,3 +441,129 @@ async def get_audit(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_s
 async def verify_audit(invoice_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
     intact, checked = await verify_invoice_chain(session, invoice_id)
     return {"invoice_id": str(invoice_id), "intact": intact, "events_checked": checked}
+
+
+class ReplyRequest(BaseModel):
+    reply_text: str
+
+
+@router.post("/invoices/{invoice_id}/replies")
+async def receive_reply(
+    invoice_id: uuid.UUID, body: ReplyRequest, session: AsyncSession = Depends(get_session)
+):
+    """The other honest gap this build always listed: reply extraction
+    (app/llm/reply_extraction.py) was real and tested, but nothing exposed
+    it as a live HTTP endpoint — only the offline spot-check
+    (python -m app.llm.spot_check) exercised it end to end. Built live in
+    response to "what's left to make it completely real."
+
+    A real Gemini call runs here, on whatever text is pasted in — not a
+    canned fixture. The extraction is EVIDENCE, never a decision: this
+    endpoint applies exactly the domain effects plan.md's diagnosis/policy
+    layer already knows how to read (Invoice.dispute_flag,
+    a real PromiseToPay row, Customer.suppressed) so the NEXT /evaluate
+    call on this invoice genuinely reflects what the customer said — the
+    same anti-hallucination verbatim-quote check and confidence-based
+    human-review routing already proven in the spot-check apply here too,
+    on live input instead of a fixture file.
+    """
+    from app.deps import get_clock
+
+    invoice = await _load_invoice(session, invoice_id)
+    clock = get_clock()
+    now = clock.now()
+
+    # asyncio.to_thread, not a direct call — found live, reproduced
+    # directly: extract_reply() is a synchronous, blocking network call,
+    # and calling it directly inside this `async def` endpoint blocked
+    # the ENTIRE process event loop for its whole duration. Every other
+    # request — including /health — went unresponsive for every user
+    # while one reply extraction was in flight. Running it in a thread
+    # keeps the blocking I/O off the loop that everything else depends on.
+    result = await asyncio.to_thread(extract_reply, body.reply_text, today=now.date())
+
+    if result.extraction is None:
+        # Schema validation failed, or the model's evidence_quote wasn't a
+        # genuine substring of what it was shown (the anti-hallucination
+        # check) — recorded honestly, no domain state touched.
+        await write_audit_event(
+            session=session,
+            clock=clock,
+            invoice_id=invoice_id,
+            kind="reply_rejected",
+            payload={"reason": result.rejected_reason, "redacted_text": result.redacted_text},
+            actor="llm_reply_extraction",
+        )
+        await session.commit()
+        return {
+            "accepted": False,
+            "reason": result.rejected_reason,
+            "redacted_text": result.redacted_text,
+            "model_used": result.model_used,
+        }
+
+    extraction = result.extraction
+    act_automatically = should_act_automatically(extraction)
+    applied: dict = {}
+
+    if act_automatically:
+        if extraction.intent == "dispute":
+            invoice.dispute_flag = True
+            applied["dispute_flag_set"] = True
+        elif extraction.intent == "promise_to_pay" and extraction.promised_date is not None:
+            promise = PromiseToPay(
+                invoice_id=invoice_id,
+                promised_date=extraction.promised_date,
+                promised_amount_paise=extraction.promised_amount_paise or invoice.amount_paise,
+                source="llm_reply",
+                state=PromiseState.open,
+                created_at=now,
+            )
+            session.add(promise)
+            applied["promise_created"] = {
+                "promised_date": extraction.promised_date.isoformat(),
+                "promised_amount_paise": promise.promised_amount_paise,
+            }
+        elif extraction.intent == "stop_contact":
+            customer = await session.get(Customer, invoice.customer_id)
+            if customer is not None:
+                customer.suppressed = True
+                applied["customer_suppressed"] = True
+        # acknowledgement / unrelated / approval_blocker / details_incorrect
+        # / requests_payment_plan: real, evidenced facts worth recording,
+        # but none of them map to an existing enforced domain effect in
+        # this build — recorded in the audit trail either way, applied
+        # dict stays empty rather than silently inventing a new effect.
+
+    await write_audit_event(
+        session=session,
+        clock=clock,
+        invoice_id=invoice_id,
+        kind="reply_received",
+        payload={
+            "intent": extraction.intent,
+            "confidence": extraction.confidence,
+            "sentiment": extraction.sentiment,
+            "evidence_quote": extraction.evidence_quote,
+            "acted_automatically": act_automatically,
+            "applied": applied,
+            "model_used": result.model_used,
+        },
+        actor="llm_reply_extraction",
+    )
+    await session.commit()
+
+    return {
+        "accepted": True,
+        "intent": extraction.intent,
+        "confidence": extraction.confidence,
+        "sentiment": extraction.sentiment,
+        "evidence_quote": extraction.evidence_quote,
+        "promised_date": extraction.promised_date.isoformat() if extraction.promised_date else None,
+        "promised_amount_paise": extraction.promised_amount_paise,
+        "dispute_reason": extraction.dispute_reason,
+        "model_used": result.model_used,
+        "acted_automatically": act_automatically,
+        "applied": applied,
+        "requires_human_review": not act_automatically,
+    }

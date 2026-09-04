@@ -115,7 +115,7 @@ across an entire batch via `POST /simulate/advance` + `POST /simulate/tick`
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **179/179 tests pass**, and 20 real defects (F1-F20 in `plan.md` §1.1)
+- **192/192 tests pass**, and 22 real defects (F1-F22 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -191,11 +191,21 @@ forced.
   exact `make reset` + reseed sequence this README documents crashed a
   live API server (`asyncpg` prepared-statement cache holding stale type
   OIDs from before the reset) — fixed at the connection level
-  (`statement_cache_size: 0`), not with a note nobody reads.
-- **Reply extraction has no HTTP endpoint yet.** `app/llm/reply_extraction.py`
-  is real and tested, but nothing exposes `POST /invoices/{id}/replies`
-  to trigger it on a live invoice — only the offline spot-check
-  (`python -m app.llm.spot_check`) exercises it end to end today.
+  (`statement_cache_size: 0`), not with a note nobody reads. F21 added
+  real SMTP sending for `send_reminder`/`offer_payment_plan` (redirected
+  to the operator's own inbox, gated so the autonomous tick can never
+  spam it) after direct feedback to "make it real." F22 — the most
+  severe live bug found in this build — was surfaced by wiring up
+  `POST /invoices/{id}/replies`: a synchronous Gemini call inside an
+  `async def` endpoint with no timeout froze the ENTIRE server, not just
+  that request, for every user, for minutes. Fixed with
+  `asyncio.to_thread` and a bounded `HttpOptions(timeout=15000)`.
+- ~~Reply extraction has no HTTP endpoint yet~~ **Resolved (F22):**
+  `POST /invoices/{id}/replies` now runs a real Gemini call on live input,
+  applying real domain effects (`Invoice.dispute_flag`, a real
+  `PromiseToPay` row, `Customer.suppressed`) so the next `/evaluate` on
+  that invoice genuinely reflects what the customer said. The dashboard
+  has a live "Customer reply" box wired to it.
 - **`checkout_abandonment` is a genuine stub, not a live surface.** It
   proves the `RiskSource` protocol generalizes beyond invoices (a
   different domain object, ~30 lines, zero pipeline changes) but returns a
@@ -222,6 +232,8 @@ POST /invoices/{id}/evaluate             diagnose + rank + govern, no execution
 POST /invoices/{id}/act                  execute the policy-approved action, idempotent
 GET  /invoices/{id}/audit
 GET  /invoices/{id}/audit/verify
+POST /invoices/{id}/replies              real Gemini extraction on live input; applies
+                                          dispute_flag/PromiseToPay/suppression for real
 
 POST /webhooks/razorpay                  HMAC-verified, deduped by x-razorpay-event-id
 

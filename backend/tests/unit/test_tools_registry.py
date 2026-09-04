@@ -75,6 +75,55 @@ def test_message_action_artifacts_flow_through_execute_tool():
     assert "respond_by" in escalate_result.response
 
 
+def test_deliver_false_never_attempts_a_real_send_even_if_configured():
+    # The safety guard behind real SMTP: /simulate/tick calls execute_tool
+    # with deliver defaulting to False specifically so an autonomous batch
+    # run across hundreds of invoices can never flood a real inbox.
+    with patch("app.tools.registry.email_is_configured", return_value=True), \
+         patch("app.tools.registry.send_email") as mock_send:
+        result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00, deliver=False)
+    mock_send.assert_not_called()
+    assert result.response["delivered"] is False
+
+
+def test_deliver_true_sends_for_real_when_configured():
+    # /act passes deliver=True -- a human explicitly asked for this one
+    # action, right now.
+    with patch("app.tools.registry.email_is_configured", return_value=True), \
+         patch("app.tools.registry.send_email", return_value={"delivered": True, "to": "me@example.com"}) as mock_send:
+        result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00, deliver=True)
+    mock_send.assert_called_once()
+    assert result.response["delivered"] is True
+    assert result.response["actually_sent_to"] == "me@example.com"
+
+
+def test_deliver_true_but_unconfigured_stays_a_draft():
+    with patch("app.tools.registry.email_is_configured", return_value=False), \
+         patch("app.tools.registry.send_email") as mock_send:
+        result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00, deliver=True)
+    mock_send.assert_not_called()
+    assert result.response["delivered"] is False
+
+
+def test_deliver_true_but_send_failure_stays_honestly_undelivered():
+    with patch("app.tools.registry.email_is_configured", return_value=True), \
+         patch("app.tools.registry.send_email", return_value={"delivered": False, "error": "SMTP error: boom"}):
+        result = execute_tool("send_reminder", "inv-1", "INV-1000", 500_000_00, deliver=True)
+    assert result.response["delivered"] is False
+    assert "boom" in result.response["note"]
+
+
+def test_deliver_true_only_applies_to_email_channel_actions():
+    # schedule_call's channel is "call" and escalate_to_am's is "internal"
+    # -- there's no telephony integration to gate, so deliver=True must
+    # not attempt to email either of them.
+    with patch("app.tools.registry.email_is_configured", return_value=True), \
+         patch("app.tools.registry.send_email") as mock_send:
+        execute_tool("schedule_call", "inv-1", "INV-1000", 500_000_00, deliver=True)
+        execute_tool("escalate_to_am", "inv-1", "INV-1000", 500_000_00, deliver=True)
+    mock_send.assert_not_called()
+
+
 def test_policy_outcome_terminals_are_recorded_not_drafted():
     # route_to_dispute etc. are internal queue entries, not customer-facing
     # messages — nothing to draft, unlike the actions above.

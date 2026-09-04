@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import date as date_type
 
 from google import genai
+from google.genai import types as genai_types
 from pydantic import ValidationError
 
 from app.llm.chaos import is_llm_down
@@ -64,7 +65,19 @@ def _client() -> genai.Client:
     # genai.Client() reads GEMINI_API_KEY from the environment on its own —
     # never passed as a Settings field, so no code path can accidentally
     # log or serialize it.
-    return genai.Client()
+    #
+    # Found live, reproduced directly: a real HTTP call from this client
+    # hung for minutes with no configured timeout, and because
+    # extract_reply() (below) was being called synchronously inside an
+    # `async def` FastAPI endpoint, that single stuck call blocked the
+    # ENTIRE event loop -- every other request, including /health, went
+    # unresponsive for every user, not just the one who triggered it.
+    # `timeout` is in milliseconds per google.genai.types.HttpOptions; 15s
+    # is generous for a small extraction call but still bounded, so a
+    # single bad network condition can never freeze the whole server
+    # again. See app/api/invoices.py's receive_reply() for the other half
+    # of this fix (running the call in a thread, not the event loop).
+    return genai.Client(http_options=genai_types.HttpOptions(timeout=15000))
 
 
 def _normalize_model_name(model: str) -> str:

@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.domain.types import ActionKey
+from app.tools.email_client import is_configured as email_is_configured
+from app.tools.email_client import send_email
 from app.tools.razorpay_client import RazorpayError, create_payment_link
 from app.tools.templates import render_message
 
@@ -49,11 +51,22 @@ def execute_tool(
     customer_name: str | None = None,
     customer_email: str | None = None,
     now: datetime | None = None,
+    deliver: bool = False,
 ) -> ToolResult:
     """`action` is a plain string, not ActionKey, because a policy
     substitution can target a policy-outcome terminal (route_to_dispute,
     request_human_approval, stop) that ActionKey deliberately excludes —
     see app/domain/policy/types.py's SubstitutionTarget.
+
+    `deliver` gates real SMTP sending for email-channel actions — default
+    False on purpose. Built live in response to "make it real," but a
+    single human clicking one invoice's "Execute" button and an
+    autonomous /simulate/tick running across an entire portfolio are very
+    different things to actually deliver: `/act` passes deliver=True (one
+    person asked for this one thing, right now); `/simulate/tick` never
+    does, so an autonomous batch run can never flood a real inbox with
+    hundreds of emails in one call. Call-channel and internal actions are
+    unaffected either way — there's no telephony integration to gate.
     """
     if action in {a.value for a in _REAL_RAZORPAY_ACTIONS}:
         request = {"amount_paise": amount_paise, "description": f"Payment for {invoice_number}"}
@@ -106,6 +119,26 @@ def execute_tool(
             "body": message["body"],
             "note": "Drafted and recorded — no email/SMS/voice provider connected in this demo.",
         }
+
+        # Real SMTP sending — built live in response to "make it real."
+        # Every generated customer email is fictitious, so a real send is
+        # always redirected to demo_recipient_email (see
+        # app/tools/email_client.py), not to `message["to"]`. Only fires
+        # for email-channel actions, only when a human explicitly asked
+        # for this one action right now (deliver=True), and only when SMTP
+        # is actually configured — otherwise this silently stays exactly
+        # what it was before: an honest, clearly-labeled draft.
+        if message["channel"] == "email" and deliver and email_is_configured():
+            send_result = send_email(message["subject"], message["body"], message["to"], message["to_name"])
+            if send_result["delivered"]:
+                response["delivered"] = True
+                response["actually_sent_to"] = send_result["to"]
+                response["note"] = (
+                    f"Really sent via SMTP — redirected to {send_result['to']} "
+                    f"(the customer's own address is fictitious, generated for this demo)."
+                )
+            else:
+                response["note"] = f"Real send attempted and failed: {send_result['error']}"
         # The real computed artifact behind the action name — found live,
         # called out directly: "if we click for offer_payment_plan, there
         # is no plan, just an email drafted." These keys (plan /

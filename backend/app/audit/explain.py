@@ -149,6 +149,8 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
         if response.get("assigned_to"):
             am = response["assigned_to"]["name"]
             return base + f" Assigned to {am}, respond by {response.get('respond_by')}."
+        if response.get("delivered") and response.get("actually_sent_to"):
+            return base + f" Really sent via SMTP to {response['actually_sent_to']}: \"{response.get('subject')}\""
         if response.get("subject"):
             to = response.get("to") or "no email on file"
             return base + f" Drafted for {to} (not sent): \"{response['subject']}\""
@@ -156,6 +158,19 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
     if kind == "action_failed":
         action = payload.get("action", "an action")
         return f"Attempted '{action}' — failed, no charge or message was sent."
+    if kind == "reply_received":
+        intent = payload.get("intent", "unknown")
+        conf = payload.get("confidence")
+        conf_str = f"{conf:.0%}" if isinstance(conf, (int, float)) else "unknown"
+        applied = payload.get("applied") or {}
+        if applied:
+            effect = ", ".join(applied.keys()).replace("_", " ")
+            return f"Customer reply read: '{intent}' ({conf_str} confidence) — {effect}."
+        if payload.get("acted_automatically"):
+            return f"Customer reply read: '{intent}' ({conf_str} confidence) — recorded, no automated effect for this intent."
+        return f"Customer reply read: '{intent}' ({conf_str} confidence) — held for human review, confidence below threshold."
+    if kind == "reply_rejected":
+        return f"Customer reply could not be trusted: {payload.get('reason', 'unknown reason')} — nothing applied."
     if kind == "payment_received":
         amount = payload.get("amount_paid_paise")
         amount_str = format_rupees(amount) if isinstance(amount, int) else "an unknown amount"
