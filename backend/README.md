@@ -115,7 +115,7 @@ across an entire batch via `POST /simulate/advance` + `POST /simulate/tick`
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **178/178 tests pass**, and 19 real defects (F1-F19 in `plan.md` §1.1)
+- **179/179 tests pass**, and 20 real defects (F1-F20 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -187,7 +187,11 @@ forced.
   now has a real orchestrator (F19): `POST /simulate/advance` moves the
   process clock and `POST /simulate/tick` runs the full loop
   autonomously across an entire batch, no human clicking each invoice —
-  built in direct response to "I want an end-to-end agent."
+  built in direct response to "I want an end-to-end agent." F20 was found during a pre-submission verification sweep: the
+  exact `make reset` + reseed sequence this README documents crashed a
+  live API server (`asyncpg` prepared-statement cache holding stale type
+  OIDs from before the reset) — fixed at the connection level
+  (`statement_cache_size: 0`), not with a note nobody reads.
 - **Reply extraction has no HTTP endpoint yet.** `app/llm/reply_extraction.py`
   is real and tested, but nothing exposes `POST /invoices/{id}/replies`
   to trigger it on a live invoice — only the offline spot-check
