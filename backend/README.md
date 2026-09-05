@@ -115,7 +115,7 @@ across an entire batch via `POST /simulate/advance` + `POST /simulate/tick`
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **196/196 tests pass**, and 26 real defects (F1-F26 in `plan.md` §1.1)
+- **196/196 tests pass**, and 27 real defects (F1-F27 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in

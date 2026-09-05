@@ -89,7 +89,17 @@ async def _facts_for(session: AsyncSession, invoice: Invoice, now) -> InvoiceFac
 
 @router.get("/invoices")
 async def list_invoices(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    stmt = select(Invoice).where(Invoice.batch_id == batch_id)
+    # Found live, while preparing a demo: an invoice updated multiple
+    # times (real payment-link/dispute/status writes) had physically
+    # relocated to the very end of an unordered scan -- Postgres makes NO
+    # ordering guarantee without an explicit ORDER BY, and an UPDATEd
+    # row's position in a sequential scan can change even though nothing
+    # about its logical identity did. Since the dashboard only renders
+    # the first 60 of this list, that invoice silently vanished from
+    # view entirely. Ordering by invoice_number makes the list's order
+    # both stable and meaningful (the natural INV-1000, 1001, ... sequence),
+    # regardless of how many times any given row has been updated.
+    stmt = select(Invoice).where(Invoice.batch_id == batch_id).order_by(Invoice.invoice_number)
     rows = (await session.execute(stmt)).scalars().all()
     return [
         {
