@@ -89,16 +89,32 @@ class ActionHistoryEntry:
 
 
 def _current_rung_index(history: list[ActionHistoryEntry], ladder: list[ActionKey]) -> int | None:
-    """The ladder index of the most recently executed action, or None if
-    this invoice has never had an action taken — a brand-new invoice is not
-    forced to start at rung 0; the ladder only constrains movement *after*
-    the first action, which is why current_rung_index=None skips the
+    """The furthest point reached on the ladder, or None if this invoice
+    has never had an action taken — a brand-new invoice is not forced to
+    start at rung 0; the ladder only constrains movement *after* the
+    first action, which is why current_rung_index=None skips the
     rung-movement checks entirely in allowed_actions().
+
+    Found live: this used to pick "the most recently executed action" via
+    `min(history, key=lambda h: h.days_ago)` — but under this project's
+    frozen demo clock, two genuinely different real actions executed in
+    the same tick (e.g. a manual /act immediately followed by
+    /simulate/tick, or two actions in one autonomous batch run) get the
+    identical days_ago, an unresolvable tie for "most recent". min() then
+    silently picked whichever entry happened to come first in the list --
+    not necessarily the one further along the ladder -- which could
+    misidentify the current rung and incorrectly narrow the "advance one
+    rung" window, blocking a rung that should have been legitimately
+    reachable. Since the ladder only ever moves forward or repeats (never
+    backward), the FURTHEST rung any executed action has reached is an
+    unambiguous, timestamp-independent definition of "current position" --
+    and it's identical to the old chronological definition whenever
+    days_ago values are actually distinct, so this only changes behavior
+    in the exact tied case that was already broken.
     """
     if not history:
         return None
-    most_recent = min(history, key=lambda h: h.days_ago)
-    return ladder.index(most_recent.action)
+    return max(ladder.index(h.action) for h in history)
 
 
 def allowed_actions(

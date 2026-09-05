@@ -126,6 +126,28 @@ def test_ladder_allows_current_and_next_rung():
     assert ActionKey.send_upi_payment_link in allowed  # one rung forward
 
 
+def test_ladder_uses_the_furthest_rung_when_two_actions_share_a_timestamp():
+    # Found live: under this project's frozen demo clock, two genuinely
+    # different real actions executed in the same tick (a manual /act
+    # immediately followed by another) get the IDENTICAL days_ago -- an
+    # unresolvable tie for "most recent". The old implementation
+    # (min(history, key=days_ago)) silently picked whichever entry
+    # happened to come first in the list, which could be the EARLIER
+    # rung, incorrectly narrowing the "advance one rung" window and
+    # blocking a rung that should have been legitimately reachable.
+    # send_upi_payment_link (rung 2) and schedule_call (rung 3) both at
+    # days_ago=0, in an order that would previously have picked rung 2 as
+    # "current" -- offer_payment_plan (rung 4) must still be reachable,
+    # since the ladder's real position is rung 3, not rung 2.
+    history = [
+        ActionHistoryEntry(action=ActionKey.send_upi_payment_link, days_ago=0),
+        ActionHistoryEntry(action=ActionKey.schedule_call, days_ago=0),
+    ]
+    allowed = allowed_actions(history, CONFIG)
+    assert ActionKey.offer_payment_plan in allowed
+    assert ActionKey.send_reminder not in allowed  # still never moves down
+
+
 @given(
     days_ago=st.integers(min_value=0, max_value=200),
     rung_index=st.integers(min_value=0, max_value=5),
