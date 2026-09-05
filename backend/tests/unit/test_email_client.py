@@ -23,7 +23,14 @@ _CONFIGURED = Settings(
     smtp_password="an-app-password",
     demo_recipient_email="operator@example.com",
 )
-_UNCONFIGURED = Settings()
+# Explicit empty strings, not Settings() with no args -- found live the
+# moment real SMTP credentials were added to .env: pydantic-settings
+# reads the real environment by default, so a bare Settings() picked up
+# the now-real SMTP_USERNAME/PASSWORD/DEMO_RECIPIENT_EMAIL instead of
+# being blank, and this "unconfigured" fixture silently stopped being
+# unconfigured. Explicit kwargs override the environment, so this stays
+# genuinely blank regardless of what's actually configured on the host.
+_UNCONFIGURED = Settings(smtp_username="", smtp_password="", demo_recipient_email="")
 
 
 def test_is_configured_requires_all_three_fields():

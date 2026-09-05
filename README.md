@@ -47,7 +47,7 @@ make it true in code, not just in a pitch.
 - A three-arm measurement (agent / fixed-cadence baseline / no-contact
   holdout) so the headline number is incremental recovery, not raw
   recovery inflated by customers who'd have paid anyway.
-- 22 real defects found by actually running the system — not by code
+- 23 real defects found by actually running the system — not by code
   review — each documented with root cause and fix in `plan.md`, including
   a silent break in the audit chain's tamper-evidence guarantee found
   while proving a real Razorpay webhook closes the loop end to end, and
