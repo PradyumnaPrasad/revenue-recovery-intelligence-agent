@@ -6,10 +6,12 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import ArmAssignment, Batch, Invoice
+from app.api.invoices import OPEN_STATUS
+from app.db.models import Action, ActionState, ArmAssignment, Batch, Invoice
 from app.db.session import get_session
 from app.deps import get_clock
 from app.domain.clock import Clock
+from app.settings import get_settings
 from app.simulation.generator import generate_portfolio
 from app.simulation.persist import persist_portfolio
 
@@ -49,11 +51,24 @@ async def list_batches(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/batches/{batch_id}/summary")
-async def batch_summary(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def batch_summary(
+    batch_id: uuid.UUID, session: AsyncSession = Depends(get_session), clock: Clock = Depends(get_clock)
+):
     total_stmt = select(func.count(Invoice.id), func.coalesce(func.sum(Invoice.amount_paise), 0)).where(
         Invoice.batch_id == batch_id
     )
     total_count, total_amount = (await session.execute(total_stmt)).one()
+
+    # Found live, reported directly: "why the top bar not changing... same
+    # amount." Because it wasn't excluding anything -- this summed EVERY
+    # invoice regardless of status, so a real payment or a manual resolve
+    # (F24) could never move this number. "At risk" now means what it
+    # says: only invoices still OPEN_STATUS.
+    open_stmt = select(func.count(Invoice.id), func.coalesce(func.sum(Invoice.amount_paise), 0)).where(
+        Invoice.batch_id == batch_id, Invoice.status == OPEN_STATUS
+    )
+    open_count, open_amount = (await session.execute(open_stmt)).one()
+    closed_amount = int(total_amount) - int(open_amount)
 
     dispute_stmt = select(func.count(Invoice.id)).where(
         Invoice.batch_id == batch_id, Invoice.dispute_flag.is_(True)
@@ -68,11 +83,33 @@ async def batch_summary(batch_id: uuid.UUID, session: AsyncSession = Depends(get
     )
     arm_rows = (await session.execute(arm_stmt)).all()
 
+    # Found live, reported directly: "actions today 0/120... what does it
+    # mean." It meant nothing -- the dashboard variable behind this was
+    # declared and never incremented, a dead stub. This counts real
+    # executed Action rows, on the simulated clock's current date, for
+    # invoices in this batch -- an actual number, not a permanent zero.
+    today = clock.now().date()
+    actions_today_stmt = (
+        select(func.count(Action.id))
+        .join(Invoice, Invoice.id == Action.invoice_id)
+        .where(
+            Invoice.batch_id == batch_id,
+            Action.state == ActionState.executed,
+            func.date(Action.executed_at) == today,
+        )
+    )
+    actions_today_count = (await session.execute(actions_today_stmt)).scalar_one()
+
     return {
         "batch_id": str(batch_id),
         "invoice_count": total_count,
-        "revenue_at_risk_paise": int(total_amount),
+        "open_invoice_count": open_count,
+        "closed_invoice_count": total_count - open_count,
+        "revenue_at_risk_paise": int(open_amount),
+        "revenue_resolved_paise": closed_amount,
         "dispute_count": dispute_count,
         "dispute_rate": round(dispute_count / total_count, 4) if total_count else 0.0,
         "arms": {arm.value if hasattr(arm, "value") else arm: n for arm, n in arm_rows},
+        "actions_today": actions_today_count,
+        "daily_action_budget": get_settings().daily_action_budget,
     }

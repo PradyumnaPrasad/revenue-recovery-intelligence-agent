@@ -39,6 +39,24 @@ router = APIRouter(tags=["invoices"])
 _POLICY = load_policy()
 _ACTION_CONFIG = load_action_config()
 
+# The only status a real, open invoice ever generates on its own
+# (app/simulation/persist.py). Anything else means the invoice is closed
+# — either "paid" (a real Razorpay webhook, F15) or one of
+# RESOLUTION_REASONS below (a real human decision, F24) — and no further
+# action should ever execute against it.
+OPEN_STATUS = "overdue"
+
+# Found missing entirely: there was no way to manually close an invoice
+# out — if a customer paid by bank transfer, or an invoice is written off
+# as bad debt, or a dispute gets resolved outside this system, nothing
+# could ever stop the ladder from continuing to recommend actions against
+# it forever. These are the only reasons this build recognizes; each one
+# becomes the invoice's new `status` directly, distinct from "overdue" and
+# from "paid" (which stays reserved for a real, webhook-verified payment
+# — resolving as paid_offline deliberately does NOT claim the same thing
+# "paid" claims, since it's asserted by a human, not verified by Razorpay).
+RESOLUTION_REASONS = {"paid_offline", "written_off", "disputed_closed", "duplicate_invoice", "other"}
+
 
 async def _load_invoice(session: AsyncSession, invoice_id: uuid.UUID) -> Invoice:
     invoice = await session.get(Invoice, invoice_id)
@@ -384,6 +402,17 @@ async def act_on_invoice(invoice_id: uuid.UUID, session: AsyncSession = Depends(
     from app.deps import get_clock
 
     invoice = await _load_invoice(session, invoice_id)
+    if invoice.status != OPEN_STATUS:
+        # Found missing entirely: there was no way to ever stop an
+        # invoice from continuing to accept new actions once resolved
+        # (paid_offline, written_off, ...) or paid for real -- clicking
+        # /act on a closed invoice would happily execute another action
+        # against something that's already done. A resolved/paid invoice
+        # is a terminal state; it doesn't come back to life via /act.
+        raise HTTPException(
+            status_code=409,
+            detail={"invoice_closed": True, "status": invoice.status},
+        )
     clock = get_clock()
     now = clock.now()
     decision = await _decide(session, invoice, now)
@@ -567,3 +596,53 @@ async def receive_reply(
         "applied": applied,
         "requires_human_review": not act_automatically,
     }
+
+
+class ResolveRequest(BaseModel):
+    reason: str
+    note: str | None = None
+
+
+@router.post("/invoices/{invoice_id}/resolve")
+async def resolve_invoice(
+    invoice_id: uuid.UUID, body: ResolveRequest, session: AsyncSession = Depends(get_session)
+):
+    """Found missing entirely: there was no way to ever manually stop an
+    invoice from continuing to accept new actions — every invoice stayed
+    "overdue" (and therefore ladder-eligible) forever, unless a real
+    Razorpay webhook happened to mark it "paid". A customer who paid by
+    bank transfer, an invoice written off as bad debt, or a dispute
+    resolved outside this system had no way to actually close the loop.
+
+    `reason` is asserted by a human, not verified by Razorpay -- this
+    deliberately does NOT set status="paid", so a resolved-as-paid_offline
+    invoice is never confused with a real, webhook-verified payment in any
+    report or dashboard reading `Invoice.status == "paid"`.
+    """
+    from app.deps import get_clock
+
+    invoice = await _load_invoice(session, invoice_id)
+    if body.reason not in RESOLUTION_REASONS:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "invalid reason", "allowed": sorted(RESOLUTION_REASONS)},
+        )
+    if invoice.status != OPEN_STATUS:
+        raise HTTPException(
+            status_code=409, detail={"invoice_closed": True, "status": invoice.status}
+        )
+
+    clock = get_clock()
+    now = clock.now()
+    invoice.status = body.reason
+    await write_audit_event(
+        session=session,
+        clock=clock,
+        invoice_id=invoice_id,
+        kind="invoice_resolved",
+        payload={"reason": body.reason, "note": body.note},
+        actor="human",
+    )
+    await session.commit()
+
+    return {"invoice_id": str(invoice_id), "status": invoice.status, "reason": body.reason}

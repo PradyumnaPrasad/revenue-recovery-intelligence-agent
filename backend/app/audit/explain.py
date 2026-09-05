@@ -171,6 +171,10 @@ def narrate_audit_event(kind: str, payload: dict) -> str:
         return f"Customer reply read: '{intent}' ({conf_str} confidence) — held for human review, confidence below threshold."
     if kind == "reply_rejected":
         return f"Customer reply could not be trusted: {payload.get('reason', 'unknown reason')} — nothing applied."
+    if kind == "invoice_resolved":
+        reason = (payload.get("reason") or "unknown").replace("_", " ")
+        note = payload.get("note")
+        return f"Invoice manually resolved: {reason}." + (f' Note: "{note}"' if note else "")
     if kind == "payment_received":
         amount = payload.get("amount_paid_paise")
         amount_str = format_rupees(amount) if isinstance(amount, int) else "an unknown amount"

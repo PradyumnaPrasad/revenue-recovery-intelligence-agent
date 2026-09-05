@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.invoices import _decide, _execute_decision
+from app.api.invoices import OPEN_STATUS, _decide, _execute_decision
 from app.db.models import Invoice
 from app.db.session import get_session
 from app.deps import get_clock
@@ -80,7 +80,12 @@ async def tick(batch_id: uuid.UUID, session: AsyncSession = Depends(get_session)
 
     summary = TickSummary(batch_id=str(batch_id), now=now.isoformat())
     for invoice in invoices:
-        if invoice.status == "paid":
+        # Not just "paid" -- any status other than OPEN_STATUS is closed
+        # (a real webhook payment, or a manual resolution via F24's
+        # POST /invoices/{id}/resolve: paid_offline, written_off, ...).
+        # An autonomous batch tick must never keep acting on an invoice a
+        # human already closed out.
+        if invoice.status != OPEN_STATUS:
             summary.already_closed += 1
             continue
         summary.evaluated += 1

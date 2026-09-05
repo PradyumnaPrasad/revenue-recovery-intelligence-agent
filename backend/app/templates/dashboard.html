@@ -329,17 +329,23 @@ async function pollChaosState() {
 }
 
 async function loadSummary() {
+  // Found live, reported directly: "why the top bar not changing... same
+  // amount, same actions 0/120." Two real bugs -- revenue_at_risk_paise
+  // used to sum every invoice regardless of status (paid/resolved
+  // invoices never left the total), and "Actions today" was a dashboard
+  // variable declared and never incremented, a permanent dead zero. Both
+  // now come from real, live-queried numbers (see app/api/batches.py).
   const s = await fetch(`${API}/batches/${currentBatchId}/summary`).then(r => r.json());
   document.getElementById("stat-risk").innerHTML = fmtRupees(s.revenue_at_risk_paise) + '<span class="sim-chip">SIM</span>';
-  document.getElementById("stat-count").textContent = s.invoice_count.toLocaleString("en-IN");
+  document.getElementById("stat-count").textContent = `${s.open_invoice_count.toLocaleString("en-IN")} open / ${s.invoice_count.toLocaleString("en-IN")} total`;
   document.getElementById("stat-dispute").textContent = fmtPct(s.dispute_rate);
+  document.getElementById("stat-budget").textContent = `${s.actions_today}/${s.daily_action_budget}`;
 }
 
 async function loadInvoices() {
   const invoices = await fetch(`${API}/invoices?batch_id=${currentBatchId}`).then(r => r.json());
   const list = document.getElementById("invoice-list");
   list.innerHTML = "";
-  let actionsToday = 0;
   for (const inv of invoices.slice(0, 60)) {
     const row = document.createElement("div");
     row.className = "inv-row";
@@ -354,7 +360,6 @@ async function loadInvoices() {
     row.addEventListener("click", () => selectInvoice(inv.id, row));
     list.appendChild(row);
   }
-  document.getElementById("stat-budget").textContent = `${actionsToday}/120`;
 }
 
 async function selectInvoice(id, rowEl) {
@@ -511,9 +516,39 @@ function renderDetail(ev, invoice, auditEvents, verify) {
     ? `<span class="verify-badge ok">🔒 chain verified</span>`
     : `<span class="verify-badge bad">⚠ chain broken</span>`;
 
-  const canAct = ev.policy.outcome === "allow" || ev.policy.outcome === "substitute";
+  // Found missing entirely: there was no way to ever manually close an
+  // invoice out (a bank transfer, a written-off debt, a dispute resolved
+  // outside this system) -- every invoice stayed "overdue" and
+  // ladder-eligible forever unless a real webhook happened to mark it
+  // paid. isClosed covers BOTH that real webhook path and the new manual
+  // resolve path (F24) -- either way, execution stops.
+  const isClosed = invoice.status !== "overdue";
+  const canAct = !isClosed && (ev.policy.outcome === "allow" || ev.policy.outcome === "substitute");
   const cf = ev.counterfactual;
   const cfClass = cf.diverges ? "diverges" : "";
+  const closedBanner = isClosed
+    ? `<div style="margin-top:8px; padding:6px 10px; background:var(--money-bg); border-radius:6px; display:inline-block;">
+         <span style="color:var(--money); font-weight:700;">🔒 CLOSED</span>
+         <span style="color:var(--text-dim); font-size:12px;"> — ${invoice.status.replace(/_/g, " ")}</span>
+       </div>`
+    : "";
+  const resolveCard = isClosed ? "" : `
+    <div class="card">
+      <h3>Resolve invoice <span style="color:var(--text-dim); font-weight:400;">— stop the ladder manually</span></h3>
+      <div style="font-size:11.5px; color:var(--text-dim); margin-bottom:8px;">
+        For anything that happens outside this system — a bank transfer, a write-off, a dispute closed by hand.
+        This is asserted by a human, not verified by Razorpay, so it never sets status to "paid".
+      </div>
+      <select id="resolve-reason" style="width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:6px;">
+        <option value="paid_offline">Paid offline (bank transfer, cheque, ...)</option>
+        <option value="written_off">Written off as bad debt</option>
+        <option value="disputed_closed">Dispute resolved outside this system</option>
+        <option value="duplicate_invoice">Duplicate invoice</option>
+        <option value="other">Other</option>
+      </select>
+      <input id="resolve-note" placeholder="Optional note" style="width:100%; background:var(--panel-2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:6px 8px; font-size:13px; margin-bottom:8px;">
+      <button id="resolve-btn" class="secondary">Resolve invoice</button>
+    </div>`;
 
   detail.innerHTML = `
     <div class="card">
@@ -523,6 +558,7 @@ function renderDetail(ev, invoice, auditEvents, verify) {
         <div class="num" style="font-size:18px; font-weight:700;">${ev.amount}</div>
       </div>
       <div style="color:var(--text-dim); font-size:12.5px; margin-top:2px;">${ev.days_overdue} days overdue</div>
+      ${closedBanner}
     </div>
 
     <div class="card">
@@ -569,6 +605,8 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       <div id="act-result" style="margin-top:10px; font-size:12.5px; color:var(--text-dim);">${lastActResultInvoiceId === currentInvoiceId && lastActResultHtml ? lastActResultHtml : ""}</div>
     </div>
 
+    ${resolveCard}
+
     <div class="card">
       <h3>Customer reply <span style="color:var(--text-dim); font-weight:400;">— real Gemini extraction, live</span></h3>
       <div style="font-size:11.5px; color:var(--text-dim); margin-bottom:8px;">
@@ -606,6 +644,7 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       // renderDetail), so the proof of what just executed survives this
       // refresh instead of flashing and vanishing.
       selectInvoice(currentInvoiceId);
+      loadSummary(); // "Actions today" just changed for real
     });
   }
 
@@ -633,6 +672,33 @@ function renderDetail(ev, invoice, auditEvents, verify) {
       // the reply-result div survives this refresh via lastReplyResultHtml
       // above, the same fix F13 already proved out for act-result.
       selectInvoice(invId);
+    });
+  }
+
+  const resolveBtn = document.getElementById("resolve-btn");
+  if (resolveBtn) {
+    resolveBtn.addEventListener("click", async () => {
+      const invId = currentInvoiceId;
+      const reason = document.getElementById("resolve-reason").value;
+      const note = document.getElementById("resolve-note").value.trim() || null;
+      resolveBtn.disabled = true;
+      resolveBtn.textContent = "Resolving…";
+      const resp = await fetch(`${API}/invoices/${invId}/resolve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason, note }),
+      });
+      resolveBtn.disabled = false;
+      resolveBtn.textContent = "Resolve invoice";
+      if (!resp.ok) {
+        alert("Could not resolve invoice — it may already be closed.");
+        return;
+      }
+      // Both the invoice's own status AND the portfolio-wide "revenue at
+      // risk" / "open invoices" numbers just changed for real (F25's
+      // fix) — refresh both, not just the detail pane.
+      selectInvoice(invId);
+      loadSummary();
     });
   }
 }

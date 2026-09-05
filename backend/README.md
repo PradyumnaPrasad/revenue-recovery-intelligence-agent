@@ -115,7 +115,7 @@ across an entire batch via `POST /simulate/advance` + `POST /simulate/tick`
   environments including one where the agent's own beliefs are
   deliberately wrong. `reports/evaluation.md` is regenerated from seeds,
   not hand-edited.
-- **192/192 tests pass**, and 23 real defects (F1-F23 in `plan.md` §1.1)
+- **195/195 tests pass**, and 25 real defects (F1-F25 in `plan.md` §1.1)
   were found by actually running the system — not by code review — and are
   documented with root cause and fix, including several that would have
   produced financially, diagnostically, or evidentially wrong behaviour in
@@ -199,7 +199,16 @@ forced.
   `POST /invoices/{id}/replies`: a synchronous Gemini call inside an
   `async def` endpoint with no timeout froze the ENTIRE server, not just
   that request, for every user, for minutes. Fixed with
-  `asyncio.to_thread` and a bounded `HttpOptions(timeout=15000)`.
+  `asyncio.to_thread` and a bounded `HttpOptions(timeout=15000)`. F24
+  added `POST /invoices/{id}/resolve` after a direct question exposed
+  that there was no way to ever manually close an invoice out (a bank
+  transfer, a write-off, a dispute resolved by hand) — `/act` and
+  `/simulate/tick` both now stop touching any invoice once closed. F25
+  fixed two real bugs the user caught by watching the header stats
+  during that same test: "revenue at risk" summed every invoice
+  unconditionally (a real payment/resolution could never move it), and
+  "Actions today" was a dashboard variable that was declared and never
+  incremented — both now come from real, live-queried numbers.
 - ~~Reply extraction has no HTTP endpoint yet~~ **Resolved (F22):**
   `POST /invoices/{id}/replies` now runs a real Gemini call on live input,
   applying real domain effects (`Invoice.dispute_flag`, a real
@@ -234,6 +243,8 @@ GET  /invoices/{id}/audit
 GET  /invoices/{id}/audit/verify
 POST /invoices/{id}/replies              real Gemini extraction on live input; applies
                                           dispute_flag/PromiseToPay/suppression for real
+POST /invoices/{id}/resolve              manually close an invoice out (paid_offline,
+                                          written_off, ...) -- stops /act and /simulate/tick
 
 POST /webhooks/razorpay                  HMAC-verified, deduped by x-razorpay-event-id
 
